@@ -7,21 +7,21 @@
  * All Rights Reserved
  *****************************************************************************/
 
-#include "TemplateAPI.h"
+#include "DpTemplateAPI.h"
 
-namespace TemplatePlugin {
+namespace DpTemplate {
 
 // =============================================================================
 // Constructor / Destructor
 // =============================================================================
 
-TemplateAPI::TemplateAPI(TemplatePersistentSettings* settings)
+DpTemplateAPI::DpTemplateAPI(DpTemplatePersistentSettings* settings)
     : m_settings(settings)
     , m_nextCallbackId(1)
 {
 }
 
-TemplateAPI::~TemplateAPI() {
+DpTemplateAPI::~DpTemplateAPI() {
     // Clear all callbacks on destruction
     m_stateCallbacks.clear();
 }
@@ -30,18 +30,18 @@ TemplateAPI::~TemplateAPI() {
 // State Control
 // =============================================================================
 
-void TemplateAPI::SetEnabled(bool enabled) {
+void DpTemplateAPI::SetEnabled(bool enabled) {
     if (m_settings->m_enabled != enabled) {
         m_settings->m_enabled = enabled;
         NotifyStateChanged();
     }
 }
 
-bool TemplateAPI::IsEnabled() const {
+bool DpTemplateAPI::IsEnabled() const {
     return m_settings->m_enabled;
 }
 
-void TemplateAPI::SetParameter(int value) {
+void DpTemplateAPI::SetParameter(int value) {
     // Clamp value to valid range
     if (value < 0) value = 0;
     if (value > 100) value = 100;
@@ -52,7 +52,7 @@ void TemplateAPI::SetParameter(int value) {
     }
 }
 
-int TemplateAPI::GetParameter() const {
+int DpTemplateAPI::GetParameter() const {
     return m_settings->m_parameter;
 }
 
@@ -60,17 +60,17 @@ int TemplateAPI::GetParameter() const {
 // Callback Management
 // =============================================================================
 
-uint64_t TemplateAPI::AddStateChangedCallback(std::function<void()> callback) {
+uint64_t DpTemplateAPI::AddStateChangedCallback(std::function<void()> callback) {
     uint64_t id = m_nextCallbackId++;
     m_stateCallbacks[id] = std::move(callback);
     return id;
 }
 
-void TemplateAPI::RemoveStateChangedCallback(uint64_t callbackId) {
+void DpTemplateAPI::RemoveStateChangedCallback(uint64_t callbackId) {
     m_stateCallbacks.erase(callbackId);
 }
 
-void TemplateAPI::NotifyStateChanged() {
+void DpTemplateAPI::NotifyStateChanged() {
     // Call all registered callbacks
     // Use a copy of the map in case a callback modifies the map
     for (auto& [id, callback] : m_stateCallbacks) {
@@ -84,8 +84,8 @@ void TemplateAPI::NotifyStateChanged() {
 // Settings Access
 // =============================================================================
 
-TemplatePersistentSettings* TemplateAPI::GetSettings() {
+DpTemplatePersistentSettings* DpTemplateAPI::GetSettings() {
     return m_settings;
 }
 
-} // namespace TemplatePlugin
+} // namespace DpTemplate

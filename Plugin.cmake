@@ -50,11 +50,11 @@ set(PKG_INFO_URL https://opencpn.org/OpenCPN/plugins/)
 
 # API files (shared interface for deeprey-gui)
 set(API_SOURCES
-    src/TemplateAPI.cpp
+    src/DpTemplateAPI.cpp
 )
 set(API_HEADERS
-    deeprey-api/template/TemplateAPI.h
-    deeprey-api/template/TemplatePersistentSettings.h
+    deeprey-api/template/DpTemplateAPI.h
+    deeprey-api/template/DpTemplatePersistentSettings.h
 )
 
 # Core plugin files

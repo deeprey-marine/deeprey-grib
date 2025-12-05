@@ -84,7 +84,7 @@ int deepreytemplate_pi::Init(void) {
 
     // 4. Create the public API instance
     //    This will be shared with deeprey-gui via plugin messaging
-    m_templateAPI = new TemplatePlugin::TemplateAPI(&m_settings);
+    m_templateAPI = new DpTemplate::DpTemplateAPI(&m_settings);
 
     // 5. Return capability flags
     //    These tell OpenCPN what features this plugin uses

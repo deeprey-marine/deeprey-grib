@@ -28,8 +28,8 @@
 #include "ocpn_plugin.h"
 #include "pidc.h"
 
-#include "TemplateAPI.h"
-#include "TemplatePersistentSettings.h"
+#include "DpTemplateAPI.h"
+#include "DpTemplatePersistentSettings.h"
 
 //----------------------------------------------------------------------------------------------------------
 //    The PlugIn Class Definition
@@ -152,8 +152,8 @@ private:
     piDC* m_pidc;                                // Drawing context for overlays
     wxFileConfig* m_pconfig;                     // OpenCPN config object
 
-    TemplatePlugin::TemplatePersistentSettings m_settings;  // Plugin settings
-    TemplatePlugin::TemplateAPI* m_templateAPI;             // Public API instance
+    DpTemplate::DpTemplatePersistentSettings m_settings;  // Plugin settings
+    DpTemplate::DpTemplateAPI* m_templateAPI;             // Public API instance
 };
 
 #endif // _DEEPREYTEMPLATE_PI_H_
