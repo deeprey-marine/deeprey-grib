@@ -1,0 +1,25 @@
+/build
+/build_*
+*.log
+# all build  
+/cache/
+package/*
+!package/DEBIAN
+# Doxygen generated documentation
+/doc/doxygen/api/
+
+# VSCode configurations
+.vscode/
+
+wxWidgets*7z
+# ignore script scripts/gen_locale/venv
+scripts/gen_locale/venv/
+
+# Unlocalized strings
+po/autogen/
+
+# Vscode & clangd dev, QtCreator user file
+cmake_byVsCode/
+.cache/clangd/
+compile_commands.json
+CMakeLists.txt.user
