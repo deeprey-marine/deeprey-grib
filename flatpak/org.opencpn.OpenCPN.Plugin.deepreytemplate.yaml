@@ -1,0 +1,20 @@
+id: org.opencpn.OpenCPN.Plugin.@plugin_name
+runtime: org.freedesktop.Sdk
+runtime-version: '22.08'
+sdk: org.freedesktop.Sdk
+build-extension: true
+separate-locales: false
+
+finish-args:
+  - --socket=x11
+  - --device=dri
+
+modules:
+  - name: @plugin_name
+    buildsystem: cmake
+    builddir: true
+    config-opts:
+      - -DOCPN_FLATPAK=ON
+    sources:
+      - type: dir
+        path: ..
