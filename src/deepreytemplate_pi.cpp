@@ -50,6 +50,7 @@ extern "C" DECL_EXP void destroy_pi(opencpn_plugin* p) {
 deepreytemplate_pi::deepreytemplate_pi(void* ppimgr)
     : opencpn_plugin_119(ppimgr)
     , m_pidc(nullptr)
+    , m_Font_DC(nullptr)
     , m_pconfig(nullptr)
     , m_templateAPI(nullptr)
 {
@@ -80,6 +81,9 @@ int deepreytemplate_pi::Init(void) {
     //    piDC provides cross-platform drawing on OpenGL canvases
     if (!m_pidc) {
         m_pidc = new piDC();
+        wxFont fo = *OCPNGetFont(_("Dialog"), 10);
+        m_Font_DC = new wxFont(fo);
+        m_pidc->SetFont(*m_Font_DC);
     }
 
     // 4. Create the public API instance
@@ -107,10 +111,14 @@ bool deepreytemplate_pi::DeInit(void) {
         UpdateApiPtr();  // Send nullptr notification
     }
 
-    // 3. Clean up drawing context
+    // 3. Clean up drawing context and font
     if (m_pidc) {
         delete m_pidc;
         m_pidc = nullptr;
+    }
+    if (m_Font_DC) {
+        delete m_Font_DC;
+        m_Font_DC = nullptr;
     }
 
     return true;
@@ -120,11 +128,10 @@ void deepreytemplate_pi::LateInit(void) {
     // LateInit is called after OpenCPN's main window is fully initialized.
     // This is the place for operations that depend on the UI being ready.
     //
-    // For this minimal template, we don't need to do anything here,
-    // but more complex plugins might:
-    // - Access the AUI manager to add dockable panes
-    // - Register with other plugins
-    // - Initialize UI components that need the main window
+    // Proactively announce API availability to any listening plugins.
+    // This handles the case where deeprey-gui loaded before us.
+    // If deeprey-gui loads later, it will send a discovery request and we respond.
+    UpdateApiPtr();
 }
 
 // =============================================================================
@@ -193,37 +200,52 @@ bool deepreytemplate_pi::RenderGLOverlayMultiCanvas(
         return false;
     }
 
-    // Example: Draw a simple text overlay
+    // Draw "Hello World" text overlay in center of canvas
     // This demonstrates the basic pattern for chart canvas rendering.
-    //
-    // In a real plugin, you would:
-    // - Convert lat/lon coordinates to screen pixels using vp
-    // - Draw your visualization (targets, routes, markers, etc.)
 
     // Position in center of canvas
     int x = vp->pix_width / 2;
     int y = vp->pix_height / 2;
 
-    // Save current drawing state
+    // Text to display
+    wxString text = _T("Hello World");
+
+    // Save current DC state
     wxPen oldPen = m_pidc->GetPen();
     wxBrush oldBrush = m_pidc->GetBrush();
+    wxFont oldFont = m_pidc->GetFont();
 
-    // Configure drawing style
-    m_pidc->SetPen(wxPen(wxColour(0, 100, 200), 2));
-    m_pidc->SetBrush(wxBrush(wxColour(0, 100, 200, 128)));
+    // Configure font (larger for visibility)
+    wxFont font = *m_Font_DC;
+    font.SetPointSize(20);
+    font.SetWeight(wxFONTWEIGHT_BOLD);
+    m_pidc->SetFont(font);
 
-    // Draw a simple marker
-    int size = m_settings.m_parameter / 2;  // Size based on parameter setting
-    m_pidc->DrawCircle(x, y, size);
+    // Use approximate text dimensions (OpenGL text extent can be unreliable)
+    // For "Hello World" at 20pt bold, approximate width ~150px, height ~30px
+    int text_width = 150;
+    int text_height = 30;
 
-    // Draw label
-    wxString label = wxString::Format(_T("Template Plugin (param=%d)"), m_settings.m_parameter);
+    // Define margins for background box
+    int margin = 15;
+    int rect_x = x - text_width/2 - margin;
+    int rect_y = y - text_height/2 - margin;
+    int rect_width = text_width + 2*margin;
+    int rect_height = text_height + 2*margin;
+
+    // Draw background rectangle (white semi-transparent)
+    m_pidc->SetBrush(wxBrush(wxColour(255, 255, 255, 200)));
+    m_pidc->SetPen(wxPen(wxColour(0, 100, 200), 3)); // Blue border
+    m_pidc->DrawRectangle(rect_x, rect_y, rect_width, rect_height);
+
+    // Draw text in blue
     m_pidc->SetTextForeground(wxColour(0, 100, 200));
-    m_pidc->DrawText(label, x - 80, y + size + 10);
+    m_pidc->DrawText(text, x - text_width/2, y - text_height/2);
 
-    // Restore drawing state
+    // Restore DC state
     m_pidc->SetPen(oldPen);
     m_pidc->SetBrush(oldBrush);
+    m_pidc->SetFont(oldFont);
 
     return true;
 }

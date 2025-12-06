@@ -150,6 +150,7 @@ private:
 
     wxBitmap m_panelBitmap;                      // Plugin icon
     piDC* m_pidc;                                // Drawing context for overlays
+    wxFont* m_Font_DC;                           // Font for text rendering
     wxFileConfig* m_pconfig;                     // OpenCPN config object
 
     DpTemplate::DpTemplatePersistentSettings m_settings;  // Plugin settings
