@@ -87,6 +87,9 @@ DpGrib_pi::DpGrib_pi(void *ppimgr) : opencpn_plugin_116(ppimgr) {
   m_bShowGrib = false;
   m_GUIScaleFactor = -1.;
   g_pi = this;
+
+  // Initialize API
+  m_templateAPI = nullptr;
 }
 
 DpGrib_pi::~DpGrib_pi(void) {
@@ -164,6 +167,12 @@ int DpGrib_pi::Init(void) {
     m_CursorDataxy = wxPoint(20, 170);
   }
 
+  // Create API instance for communication with deepreygui
+  if (!m_templateAPI) {
+    m_templateAPI = new DpTemplate::DpTemplateAPI(&m_settings);
+    wxLogMessage("deepreytemplate_pi: API created");
+  }
+
   return (WANTS_OVERLAY_CALLBACK | WANTS_OPENGL_OVERLAY_CALLBACK |
           WANTS_CURSOR_LATLON | WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL |
           WANTS_CONFIG | WANTS_PREFERENCES | WANTS_PLUGIN_MESSAGING |
@@ -182,6 +191,13 @@ bool DpGrib_pi::DeInit(void) {
 
   delete m_pGRIBOverlayFactory;
   m_pGRIBOverlayFactory = nullptr;
+
+  // Clean up API
+  if (m_templateAPI) {
+    delete m_templateAPI;
+    m_templateAPI = nullptr;
+    wxLogMessage("deepreytemplate_pi: API destroyed");
+  }
 
   return true;
 }
@@ -637,6 +653,22 @@ void DpGrib_pi::SetDialogFont(wxWindow *dialog, wxFont *font) {
 }
 
 void DpGrib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
+  // Handle ping from deepreygui plugin - send API pointer
+  if (message_id == _T("DP_GUI_TO_TEMPLATE")) {
+    wxLogMessage("deepreytemplate_pi: Received ping from deepreygui");
+    
+    if (m_templateAPI) {
+      // Send API pointer as unsigned long long
+      unsigned long long apiPtr = reinterpret_cast<unsigned long long>(m_templateAPI);
+      wxString response = wxString::Format("%llu", apiPtr);
+      SendPluginMessage(_T("TEMPLATE_API_TO_DP_GUI"), response);
+      wxLogMessage("deepreytemplate_pi: Sent API pointer to deepreygui: %llu", apiPtr);
+    } else {
+      wxLogMessage("deepreytemplate_pi: ERROR - API not initialized");
+    }
+    return;
+  }
+
   if (message_id == _T("GRIB_VALUES_REQUEST")) {
     if (!m_pGribCtrlBar) OnToolbarToolCallback(0);
 

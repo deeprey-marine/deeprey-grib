@@ -57,6 +57,8 @@
 #include "GribSettingsDialog.h"
 #include "GribOverlayFactory.h"
 #include "GribUIDialog.h"
+#include "DpTemplateAPI.h"
+#include "DpTemplatePersistentSettings.h"
 
 class GribPreferencesDialog;
 
@@ -235,6 +237,10 @@ private:
    */
   PlugIn_ViewPort m_current_vp;
   wxBitmap m_panelBitmap;
+
+  // Template API for communication with deepreygui
+  DpTemplate::DpTemplateAPI* m_templateAPI;
+  DpTemplate::DpTemplatePersistentSettings m_settings;
 };
 
 //----------------------------------------------------------------------------------------
