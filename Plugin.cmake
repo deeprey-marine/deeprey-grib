@@ -59,10 +59,91 @@ set(API_HEADERS
 
 # Core plugin files
 set(CORE_SOURCES
-    src/deepreytemplate_pi.cpp
+    src/DpGrib_pi.cpp
+    src/GribOverlayFactory.cpp
+    src/GribReader.cpp
+    src/GribRecord.cpp
+    src/GribV1Record.cpp
+    src/GribV2Record.cpp
+    src/GribUIDialog.cpp
+    src/GribUIDialogBase.cpp
+    src/GribRequestDialog.cpp
+    src/GribSettingsDialog.cpp
+    src/GribTable.cpp
+    src/CustomGrid.cpp
+    src/CursorData.cpp
+    src/IsoLine.cpp
+    src/XyGribPanel.cpp
+    src/XyGribModelDef.cpp
+    src/email.cpp
+    src/GrabberWin.cpp
+    src/zuFile.cpp
 )
+
 set(CORE_HEADERS
-    include/deepreytemplate_pi.h
+    include/DpGrib_pi.h
+    include/DpGribAPI.h
+    include/GribOverlayFactory.h
+    include/GribReader.h
+    include/GribRecord.h
+    include/GribRecordSet.h
+    include/GribV1Record.h
+    include/GribV2Record.h
+    include/GribUIDialog.h
+    include/GribUIDialogBase.h
+    include/GribRequestDialog.h
+    include/GribSettingsDialog.h
+    include/GribTable.h
+    include/CustomGrid.h
+    include/CursorData.h
+    include/IsoLine.h
+    include/XyGribPanel.h
+    include/XyGribModelDef.h
+    include/email.h
+    include/GrabberWin.h
+    include/zuFile.h
+    include/icons.h
+    include/msg.h
+)
+
+# JSON library files
+set(JSON_SOURCES
+    src/jsonreader.cpp
+    src/jsonval.cpp
+    src/jsonwriter.cpp
+)
+
+set(JSON_HEADERS
+    include/jsonreader.h
+    include/jsonval.h
+    include/jsonwriter.h
+    include/json_defs.h
+)
+
+# OpenGL/Drawing files
+set(GL_SOURCES
+    src/pi_ocpndc.cpp
+    src/pi_shaders.cpp
+    src/pi_TexFont.cpp
+    src/icons.cpp
+)
+
+set(GL_HEADERS
+    include/pi_ocpndc.h
+    include/pi_shaders.h
+    include/pi_TexFont.h
+    include/pi_gl.h
+    include/linmath.h
+)
+
+# Utility files
+set(UTIL_SOURCES
+    src/smapi.cpp
+)
+
+set(UTIL_HEADERS
+    include/smapi.h
+    include/version.h
 )
 
 # ============================================================================
@@ -73,6 +154,12 @@ source_group("API\\Source" FILES ${API_SOURCES})
 source_group("API\\Headers" FILES ${API_HEADERS})
 source_group("Core\\Source" FILES ${CORE_SOURCES})
 source_group("Core\\Headers" FILES ${CORE_HEADERS})
+source_group("JSON\\Source" FILES ${JSON_SOURCES})
+source_group("JSON\\Headers" FILES ${JSON_HEADERS})
+source_group("OpenGL\\Source" FILES ${GL_SOURCES})
+source_group("OpenGL\\Headers" FILES ${GL_HEADERS})
+source_group("Utilities\\Source" FILES ${UTIL_SOURCES})
+source_group("Utilities\\Headers" FILES ${UTIL_HEADERS})
 
 # ============================================================================
 # Final Source Lists
@@ -81,11 +168,17 @@ source_group("Core\\Headers" FILES ${CORE_HEADERS})
 set(SRC
     ${CORE_SOURCES}
     ${API_SOURCES}
+    ${JSON_SOURCES}
+    ${GL_SOURCES}
+    ${UTIL_SOURCES}
 )
 
 set(HEADERS
     ${CORE_HEADERS}
     ${API_HEADERS}
+    ${JSON_HEADERS}
+    ${GL_HEADERS}
+    ${UTIL_HEADERS}
 )
 
 # ============================================================================
@@ -100,7 +193,7 @@ if (MSVC)
 endif ()
 
 # OpenCPN API version to use
-set(PKG_API_LIB api-19)
+set(PKG_API_LIB api-21)
 
 # ============================================================================
 # Macros

@@ -54,7 +54,7 @@
 #include "GribUIDialogBase.h"
 #include "GribUIDialog.h"
 #include "pi_ocpndc.h"
-#include "wx/jsonreader.h"
+#include "jsonreader.h"
 
 enum GribDownloadType {
   WORLD,          ///< Global forecast downloads (e.g., GFS)

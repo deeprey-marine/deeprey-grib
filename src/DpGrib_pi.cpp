@@ -74,8 +74,7 @@ DpGrib_pi::DpGrib_pi(void *ppimgr) : opencpn_plugin_116(ppimgr) {
   // Create the PlugIn icons
   initialize_images();
 
-  wxString shareLocn = *GetpSharedDataLocation() + _T("plugins") +
-                       wxFileName::GetPathSeparator() + _T("DpGrib_pi") +
+  wxString shareLocn = GetPluginDataDir("deepreytemplate_pi") +
                        wxFileName::GetPathSeparator() + _T("data") +
                        wxFileName::GetPathSeparator();
   wxImage panelIcon(shareLocn + _T("grib_panel_icon.png"));
@@ -197,7 +196,7 @@ int DpGrib_pi::GetPlugInVersionMinor() { return PLUGIN_VERSION_MINOR; }
 
 wxBitmap *DpGrib_pi::GetPlugInBitmap() { return &m_panelBitmap; }
 
-wxString DpGrib_pi::GetCommonName() { return _T("GRIB"); }
+wxString DpGrib_pi::GetCommonName() { return _T("deepreytemplate"); }
 
 wxString DpGrib_pi::GetShortDescription() { return _("GRIB PlugIn for OpenCPN"); }
 

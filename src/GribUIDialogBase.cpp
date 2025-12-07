@@ -10,7 +10,6 @@
  */
 #include "GribUIDialogBase.h"
 #include "XyGribPanel.h"
-#include "manual.h"
 #include "ocpn_plugin.h"
 #include "folder.xpm"
 
@@ -2128,8 +2127,9 @@ GribPreferencesDialogBase::GribPreferencesDialogBase(
   m_sdbSizer2->AddButton(m_sdbSizer2Cancel);
   auto help_btn = new wxButton(this, wxID_HELP);
   help_btn->Bind(wxEVT_COMMAND_BUTTON_CLICKED, [&](wxCommandEvent) {
-    wxString datadir = GetPluginDataDir("manual_pi");
-    Manual(this, datadir.ToStdString()).Launch("Grib");
+    // Manual plugin not available - could open help URL instead
+    // wxString datadir = GetPluginDataDir("manual_pi");
+    // Manual(this, datadir.ToStdString()).Launch("Grib");
   });
   m_sdbSizer2->AddButton(help_btn);
 

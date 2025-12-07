@@ -51,8 +51,8 @@
 
 #include "ocpn_plugin.h"
 
-#include "wx/jsonreader.h"
-#include "wx/jsonwriter.h"
+#include "jsonreader.h"
+#include "jsonwriter.h"
 
 #include "GribSettingsDialog.h"
 #include "GribOverlayFactory.h"
