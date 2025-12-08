@@ -95,6 +95,7 @@ public:
   //    The required PlugIn Methods
   int Init(void);
   bool DeInit(void);
+  void LateInit(void);
 
   int GetAPIVersionMajor();
   int GetAPIVersionMinor();
@@ -179,6 +180,7 @@ public:
 private:
   bool LoadConfig(void);
   bool SaveConfig(void);
+  void UpdateApiPtr(void);
 
   bool DoRenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                          int canvasIndex);

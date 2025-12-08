@@ -176,7 +176,8 @@ int DpGrib_pi::Init(void) {
   return (WANTS_OVERLAY_CALLBACK | WANTS_OPENGL_OVERLAY_CALLBACK |
           WANTS_CURSOR_LATLON | WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL |
           WANTS_CONFIG | WANTS_PREFERENCES | WANTS_PLUGIN_MESSAGING |
-          WANTS_ONPAINT_VIEWPORT | WANTS_MOUSE_EVENTS | WANTS_NMEA_EVENTS);
+          WANTS_ONPAINT_VIEWPORT | WANTS_MOUSE_EVENTS | WANTS_NMEA_EVENTS |
+          WANTS_LATE_INIT);
 }
 
 bool DpGrib_pi::DeInit(void) {
@@ -192,14 +193,26 @@ bool DpGrib_pi::DeInit(void) {
   delete m_pGRIBOverlayFactory;
   m_pGRIBOverlayFactory = nullptr;
 
-  // Clean up API
+  // Clean up API and notify deepreygui
   if (m_templateAPI) {
     delete m_templateAPI;
     m_templateAPI = nullptr;
+    UpdateApiPtr();  // Send nullptr notification to deepreygui
     wxLogMessage("deepreytemplate_pi: API destroyed");
   }
 
   return true;
+}
+
+void DpGrib_pi::LateInit(void) {
+  // LateInit is called after OpenCPN's main window is fully initialized.
+  // This is the place for operations that depend on the UI being ready.
+  //
+  // Proactively announce API availability to any listening plugins.
+  // This handles the case where deeprey-gui loaded before us.
+  // If deeprey-gui loads later, it will send a discovery request and we respond.
+  UpdateApiPtr();
+  wxLogMessage("deepreytemplate_pi: LateInit - API announced to deepreygui");
 }
 
 int DpGrib_pi::GetAPIVersionMajor() { return MY_API_VERSION_MAJOR; }
@@ -653,21 +666,24 @@ void DpGrib_pi::SetDialogFont(wxWindow *dialog, wxFont *font) {
 }
 
 void DpGrib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
-  // Handle ping from deepreygui plugin - send API pointer
+  // Handle discovery request from deeprey-gui
+  //
+  // When deeprey-gui starts, it broadcasts discovery messages to find plugins.
+  // When we receive our message ID, we respond with our API pointer.
   if (message_id == _T("DP_GUI_TO_TEMPLATE")) {
-    wxLogMessage("deepreytemplate_pi: Received ping from deepreygui");
-    
-    if (m_templateAPI) {
-      // Send API pointer as unsigned long long
-      unsigned long long apiPtr = reinterpret_cast<unsigned long long>(m_templateAPI);
-      wxString response = wxString::Format("%llu", apiPtr);
-      SendPluginMessage(_T("TEMPLATE_API_TO_DP_GUI"), response);
-      wxLogMessage("deepreytemplate_pi: Sent API pointer to deepreygui: %llu", apiPtr);
-    } else {
-      wxLogMessage("deepreytemplate_pi: ERROR - API not initialized");
-    }
+    UpdateApiPtr();
     return;
   }
+
+  // Handle global settings update (optional)
+  // deeprey-gui may broadcast theme changes or other global settings
+  if (message_id == _T("GLOBAL_SETTINGS_UPDATED")) {
+    // React to global settings change if needed
+    // For example: update colors for night mode
+    return;
+  }
+
+  // Handle legacy GRIB-specific messages below
 
   if (message_id == _T("GRIB_VALUES_REQUEST")) {
     if (!m_pGribCtrlBar) OnToolbarToolCallback(0);
@@ -793,6 +809,16 @@ void DpGrib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
       m_pGribCtrlBar->SetDialogsStyleSizePosition(true);
     }
   }
+}
+
+void DpGrib_pi::UpdateApiPtr() {
+  // Send our API pointer to deeprey-gui.
+  //
+  // Message format: Pointer value as string (base 10 unsigned long long)
+  // When m_templateAPI is nullptr (during DeInit), this notifies deeprey-gui
+  // to clear its cached pointer.
+  wxString apiPtrStr = wxString::Format("%llu", (unsigned long long)m_templateAPI);
+  SendPluginMessage("TEMPLATE_API_TO_DP_GUI", apiPtrStr);
 }
 
 bool DpGrib_pi::LoadConfig(void) {
