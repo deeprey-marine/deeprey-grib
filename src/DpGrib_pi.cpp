@@ -89,7 +89,7 @@ DpGrib_pi::DpGrib_pi(void *ppimgr) : opencpn_plugin_116(ppimgr) {
   g_pi = this;
 
   // Initialize API
-  m_templateAPI = nullptr;
+    m_gribAPI = nullptr;
 }
 
 DpGrib_pi::~DpGrib_pi(void) {
@@ -168,9 +168,9 @@ int DpGrib_pi::Init(void) {
   }
 
   // Create API instance for communication with deepreygui
-  if (!m_templateAPI) {
-    m_templateAPI = new DpTemplate::DpTemplateAPI(&m_settings);
-    wxLogMessage("deepreytemplate_pi: API created");
+  if (!m_gribAPI) {
+    m_gribAPI = new DpGrib::DpGribAPI(&m_settings);
+    wxLogMessage("deepreygrib_pi: API created");
   }
 
   return (WANTS_OVERLAY_CALLBACK | WANTS_OPENGL_OVERLAY_CALLBACK |
@@ -194,9 +194,9 @@ bool DpGrib_pi::DeInit(void) {
   m_pGRIBOverlayFactory = nullptr;
 
   // Clean up API and notify deepreygui
-  if (m_templateAPI) {
-    delete m_templateAPI;
-    m_templateAPI = nullptr;
+  if (m_gribAPI) {
+    delete m_gribAPI;
+    m_gribAPI = nullptr;
     UpdateApiPtr();  // Send nullptr notification to deepreygui
     wxLogMessage("deepreytemplate_pi: API destroyed");
   }
@@ -670,7 +670,7 @@ void DpGrib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
   //
   // When deeprey-gui starts, it broadcasts discovery messages to find plugins.
   // When we receive our message ID, we respond with our API pointer.
-  if (message_id == _T("DP_GUI_TO_TEMPLATE")) {
+  if (message_id == _T("DP_GUI_TO_GRIB")) {
     UpdateApiPtr();
     return;
   }
@@ -815,10 +815,10 @@ void DpGrib_pi::UpdateApiPtr() {
   // Send our API pointer to deeprey-gui.
   //
   // Message format: Pointer value as string (base 10 unsigned long long)
-  // When m_templateAPI is nullptr (during DeInit), this notifies deeprey-gui
+  // When m_gribAPI is nullptr (during DeInit), this notifies deeprey-gui
   // to clear its cached pointer.
-  wxString apiPtrStr = wxString::Format("%llu", (unsigned long long)m_templateAPI);
-  SendPluginMessage("TEMPLATE_API_TO_DP_GUI", apiPtrStr);
+  wxString apiPtrStr = wxString::Format("%llu", (unsigned long long)m_gribAPI);
+  SendPluginMessage("GRIB_API_TO_DP_GUI", apiPtrStr);
 }
 
 bool DpGrib_pi::LoadConfig(void) {

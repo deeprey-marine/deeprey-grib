@@ -50,11 +50,11 @@ set(PKG_INFO_URL https://opencpn.org/OpenCPN/plugins/)
 
 # API files (shared interface for deeprey-gui)
 set(API_SOURCES
-    src/DpTemplateAPI.cpp
+    src/DpGribAPI.cpp
 )
 set(API_HEADERS
-    deeprey-api/template/DpTemplateAPI.h
-    deeprey-api/template/DpTemplatePersistentSettings.h
+    deeprey-api/grib/DpGribAPI.h
+    deeprey-api/grib/DpGribPersistentSettings.h
 )
 
 # Core plugin files
@@ -82,7 +82,6 @@ set(CORE_SOURCES
 
 set(CORE_HEADERS
     include/DpGrib_pi.h
-    include/DpGribAPI.h
     include/GribOverlayFactory.h
     include/GribReader.h
     include/GribRecord.h
