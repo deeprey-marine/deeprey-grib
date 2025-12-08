@@ -17,7 +17,7 @@
 #define wxDEBUG_LEVEL 0
 #endif
 
-#include "jsonwriter.h"
+#include <wx/jsonwriter.h>
 
 #include <wx/sstream.h>
 #include <wx/mstream.h>

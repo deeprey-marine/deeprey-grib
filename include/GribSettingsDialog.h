@@ -46,7 +46,7 @@
 
 #include "GribUIDialogBase.h"
 
-#include "jsonval.h"
+#include <wx/jsonval.h>
 
 //----------------------------------------------------------------------------------------------------------
 //    Grib OverlaySettings Specification

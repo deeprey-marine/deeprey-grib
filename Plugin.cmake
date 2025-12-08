@@ -105,20 +105,6 @@ set(CORE_HEADERS
     include/msg.h
 )
 
-# JSON library files
-set(JSON_SOURCES
-    src/jsonreader.cpp
-    src/jsonval.cpp
-    src/jsonwriter.cpp
-)
-
-set(JSON_HEADERS
-    include/jsonreader.h
-    include/jsonval.h
-    include/jsonwriter.h
-    include/json_defs.h
-)
-
 # OpenGL/Drawing files
 set(GL_SOURCES
     src/pi_ocpndc.cpp
@@ -153,8 +139,6 @@ source_group("API\\Source" FILES ${API_SOURCES})
 source_group("API\\Headers" FILES ${API_HEADERS})
 source_group("Core\\Source" FILES ${CORE_SOURCES})
 source_group("Core\\Headers" FILES ${CORE_HEADERS})
-source_group("JSON\\Source" FILES ${JSON_SOURCES})
-source_group("JSON\\Headers" FILES ${JSON_HEADERS})
 source_group("OpenGL\\Source" FILES ${GL_SOURCES})
 source_group("OpenGL\\Headers" FILES ${GL_HEADERS})
 source_group("Utilities\\Source" FILES ${UTIL_SOURCES})
@@ -167,7 +151,6 @@ source_group("Utilities\\Headers" FILES ${UTIL_HEADERS})
 set(SRC
     ${CORE_SOURCES}
     ${API_SOURCES}
-    ${JSON_SOURCES}
     ${GL_SOURCES}
     ${UTIL_SOURCES}
 )
@@ -175,7 +158,6 @@ set(SRC
 set(HEADERS
     ${CORE_HEADERS}
     ${API_HEADERS}
-    ${JSON_HEADERS}
     ${GL_HEADERS}
     ${UTIL_HEADERS}
 )
@@ -206,23 +188,51 @@ endmacro()
 
 macro(add_plugin_libraries)
     # Add libraries required by this plugin
+    
+    # Enable CMP0079 to allow linking to targets from other directories
+    cmake_policy(SET CMP0079 NEW)
 
-    # plugin_dc provides piDC for cross-platform drawing
-    add_subdirectory("${CMAKE_SOURCE_DIR}/opencpn-libs/plugin_dc")
-    target_link_libraries(${PACKAGE_NAME} ocpn::plugin-dc)
-
-    # wxJSON for JSON parsing (optional, uncomment if needed)
-    # add_subdirectory("${CMAKE_SOURCE_DIR}/opencpn-libs/wxJSON")
-    # target_link_libraries(${PACKAGE_NAME} ocpn::wxjson)
-
-    # GLEW for OpenGL extensions
+    # GLEW for OpenGL extensions - Set up BEFORE plugin_dc to ensure proper header order
     if (CMAKE_HOST_WIN32)
         add_subdirectory("${CMAKE_SOURCE_DIR}/libs/glew/build/cmake" EXCLUDE_FROM_ALL)
+        set(GLEW_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/libs/glew/include")
+        set(GLEW_LIBRARY glew)
         target_link_libraries(${PACKAGE_NAME} glew)
         target_include_directories(${PACKAGE_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/libs/glew/include)
     elseif (NOT APPLE)
         find_package(GLEW REQUIRED)
+        set(GLEW_INCLUDE_DIR ${GLEW_INCLUDE_DIRS})
+        set(GLEW_LIBRARY ${GLEW_LIBRARIES})
         target_include_directories(${PACKAGE_NAME} PRIVATE ${GLEW_INCLUDE_DIRS})
         target_link_libraries(${PACKAGE_NAME} ${GLEW_LIBRARIES})
     endif ()
+
+    # plugin_dc provides piDC for cross-platform drawing
+    add_subdirectory("${CMAKE_SOURCE_DIR}/opencpn-libs/plugin_dc")
+    target_link_libraries(${PACKAGE_NAME} ocpn::plugin-dc)
+    
+    # Inject GLEW into the submodule's dc_utils target to fix header ordering
+    # This ensures GLEW is included before wx/glcanvas.h without modifying submodule
+    if (TARGET _DC_UTILS AND NOT APPLE)
+        # Add GLEW include directories with highest priority
+        target_include_directories(_DC_UTILS BEFORE PRIVATE ${GLEW_INCLUDE_DIR})
+        
+        # Force include a minimal GLEW wrapper that loads GLEW first
+        if (CMAKE_HOST_WIN32)
+            target_compile_options(_DC_UTILS PRIVATE 
+                /FI"${CMAKE_SOURCE_DIR}/include/glew_force_include.h"
+            )
+        else()
+            target_compile_options(_DC_UTILS PRIVATE 
+                -include "${CMAKE_SOURCE_DIR}/include/glew_force_include.h"
+            )
+        endif()
+        
+        # Link GLEW to the submodule target
+        target_link_libraries(_DC_UTILS PRIVATE ${GLEW_LIBRARY})
+    endif ()
+
+    # wxJSON for JSON parsing
+    add_subdirectory("${CMAKE_SOURCE_DIR}/opencpn-libs/wxJSON")
+    target_link_libraries(${PACKAGE_NAME} ocpn::wxjson)
 endmacro()

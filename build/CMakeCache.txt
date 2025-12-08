@@ -310,6 +310,12 @@ PYTHON3:FILEPATH=/usr/bin/python3
 //Path to a program.
 PY_WRAPPER:FILEPATH=PY_WRAPPER-NOTFOUND
 
+//Dependencies for the target
+WXJSON_LIB_DEPENDS:STATIC=general;-L/usr/lib/x86_64-linux-gnu;general;-pthread;general;-lwx_baseu-3.2;general;-lwx_gtk3u_core-3.2;general;-lwx_baseu_net-3.2;general;-lwx_baseu_xml-3.2;general;-lwx_gtk3u_html-3.2;general;-lwx_gtk3u_stc-3.2;general;-lwx_gtk3u_aui-3.2;general;-lwx_gtk3u_gl-3.2;
+
+//Dependencies for the target
+_DC_UTILS_LIB_DEPENDS:STATIC=general;/usr/lib/x86_64-linux-gnu/libGLEW.so;
+
 //Value Computed by CMake
 deepreytemplate_pi_BINARY_DIR:STATIC=/home/houssemhammami/deeprey-template/build
 
@@ -450,7 +456,7 @@ CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_NM
 CMAKE_NM-ADVANCED:INTERNAL=1
 //number of local generators
-CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=4
+CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=5
 //ADVANCED property for variable: CMAKE_OBJCOPY
 CMAKE_OBJCOPY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_OBJDUMP
