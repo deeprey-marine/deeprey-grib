@@ -959,6 +959,15 @@ bool DpGrib_pi::Internal_IsVisible() const {
   return m_bShowGrib;
 }
 
+void DpGrib_pi::Internal_StartWorldDownload(double latMin, double lonMin, 
+                                            double latMax, double lonMax, 
+                                            int durationHours) {
+
+  // Forward to the request dialog's API download method
+  m_pGribCtrlBar->pReq_Dialog->StartWorldDownloadFromAPI(
+      latMin, lonMin, latMax, lonMax, durationHours);
+}
+
 //----------------------------------------------------------------------------------------------------------
 //          Prefrence dialog Implementation
 //----------------------------------------------------------------------------------------------------------

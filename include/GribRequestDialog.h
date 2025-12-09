@@ -199,6 +199,22 @@ public:
     OnOK(evt);
   }
 
+  /**
+   * Start a world GRIB download triggered via API.
+   *
+   * This method is called by the plugin's Internal_StartWorldDownload to initiate
+   * a GRIB download with geographic bounds and duration specified by an external
+   * API consumer (e.g., deeprey-gui).
+   *
+   * @param latMin Minimum latitude of bounding box
+   * @param lonMin Minimum longitude of bounding box  
+   * @param latMax Maximum latitude of bounding box
+   * @param lonMax Maximum longitude of bounding box
+   * @param durationHours Forecast duration in hours
+   */
+  void StartWorldDownloadFromAPI(double latMin, double lonMin, double latMax,
+                                  double lonMax, int durationHours);
+
   wxString m_RequestConfigBase;
   wxString m_MailToAddresses;
   /**
@@ -281,6 +297,20 @@ private:
   void OnDownloadLocal(wxCommandEvent &event) override;
   void onDLEvent(OCPN_downloadEvent &ev);
   void EnableDownloadButtons();
+  
+  /**
+   * Build GRIB download URL for specified model, bounds, and duration.
+   * 
+   * @param model The GRIB model name (e.g., "ecmwf0p25")
+   * @param latMin Minimum latitude
+   * @param lonMin Minimum longitude
+   * @param latMax Maximum latitude
+   * @param lonMax Maximum longitude
+   * @param hours Forecast duration in hours
+   * @return Complete download URL string
+   */
+  std::string BuildDownloadUrl(const char* model, double latMin, double lonMin,
+                                double latMax, double lonMax, int hours);
 
   // Xygrib internal methods
   void InitializeXygribDialog();

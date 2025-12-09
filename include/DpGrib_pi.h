@@ -169,6 +169,8 @@ public:
   // Internal methods for API access
   void Internal_SetVisible(bool visible);
   bool Internal_IsVisible() const;
+  void Internal_StartWorldDownload(double latMin, double lonMin, double latMax, 
+                                   double lonMax, int durationHours);
 
   int m_MenuItem;
   bool m_DialogStyleChanged;

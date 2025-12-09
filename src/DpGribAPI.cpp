@@ -102,6 +102,18 @@ void DpGribAPI::NotifyStateChanged() {
 }
 
 // =============================================================================
+// Download Control
+// =============================================================================
+
+void DpGribAPI::StartWorldDownload(double latMin, double lonMin, double latMax, 
+                                   double lonMax, int durationHours) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_StartWorldDownload(
+            latMin, lonMin, latMax, lonMax, durationHours);
+    }
+}
+
+// =============================================================================
 // Settings Access
 // =============================================================================
 

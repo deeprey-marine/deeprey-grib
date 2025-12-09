@@ -514,6 +514,20 @@ size_t LengthSelToHours(int sel) {
   }
 }
 
+std::string GribRequestSetting::BuildDownloadUrl(const char* model, double latMin, 
+                                                  double lonMin, double latMax, 
+                                                  double lonMax, int hours) {
+  std::ostringstream oss;
+  oss << "https://grib.bosun.io/grib?";
+  oss << "model=" << model;
+  oss << "&latmin=" << latMin;
+  oss << "&latmax=" << latMax;
+  oss << "&lonmin=" << lonMin;
+  oss << "&lonmax=" << lonMax;
+  oss << "&length=" << hours;
+  return oss.str();
+}
+
 void GribRequestSetting::onDLEvent(OCPN_downloadEvent &ev) {
   // std::cout << "onDLEvent  " << ev.getDLEventCondition() << " "
   //           << ev.getDLEventStatus() << std::endl;
@@ -618,17 +632,14 @@ void GribRequestSetting::OnWorldDownload(wxCommandEvent &event) {
       model = "ecmwf0p25";
       break;
   }
-  std::ostringstream oss;
-  oss << "https://grib.bosun.io/grib?";
-  oss << "model=" << model;
-  oss << "&latmin=" << GetMinLat();
-  oss << "&latmax=" << GetMaxLat();
-  oss << "&lonmin=" << GetMinLon();
-  oss << "&lonmax=" << GetMaxLon();
-  oss << "&length=" << LengthSelToHours(m_chForecastLength->GetSelection());
+  
+  int hours = LengthSelToHours(m_chForecastLength->GetSelection());
+  std::string url = BuildDownloadUrl(model.c_str(), GetMinLat(), GetMinLon(), 
+                                     GetMaxLat(), GetMaxLon(), hours);
+  
   wxString filename =
-      wxString::Format("ocpn_%s_%li_%s.grb2", model.c_str(),
-                       LengthSelToHours(m_chForecastLength->GetSelection()),
+      wxString::Format("ocpn_%s_%ih_%s.grb2", model.c_str(),
+                       hours,
                        wxDateTime::Now().Format("%F-%H-%M"));
   wxString path = m_parent.GetGribDir();
   path.Append(wxFileName::GetPathSeparator());
@@ -640,7 +651,7 @@ void GribRequestSetting::OnWorldDownload(wxCommandEvent &event) {
         (wxObjectEventFunction)(wxEventFunction)&GribRequestSetting::onDLEvent);
   }
   auto res =
-      OCPN_downloadFileBackground(oss.str(), path, this, &m_download_handle);
+      OCPN_downloadFileBackground(url, path, this, &m_download_handle);
   while (m_downloading) {
     wxTheApp->ProcessPendingEvents();
     wxMilliSleep(10);
@@ -667,6 +678,60 @@ void GribRequestSetting::OnWorldDownload(wxCommandEvent &event) {
   m_btnDownloadWorld->SetLabelText(_("Download"));
   m_downloadType = GribDownloadType::NONE;
   EnableDownloadButtons();
+}
+
+void GribRequestSetting::StartWorldDownloadFromAPI(double latMin, double lonMin,
+                                                    double latMax, double lonMax,
+                                                    int durationHours) {
+  // Cannot start new download if one is in progress
+  if (m_downloading) {
+    wxLogMessage("deeprey_grib_pi: Cannot start download - download already in progress");
+    return;
+  }
+
+  // Validate parameters
+  if (durationHours < 1 || durationHours > 999) {
+    wxLogMessage("deeprey_grib_pi: Invalid duration hours: %d (must be 1-999)", durationHours);
+    return;
+  }
+  if (latMin < -90 || latMin > 90 || latMax < -90 || latMax > 90 || latMin >= latMax) {
+    wxLogMessage("deeprey_grib_pi: Invalid latitude bounds: [%f, %f]", latMin, latMax);
+    return;
+  }
+  if (lonMin < -180 || lonMin > 180 || lonMax < -180 || lonMax > 180) {
+    wxLogMessage("deeprey_grib_pi: Invalid longitude bounds: [%f, %f]", lonMin, lonMax);
+    return;
+  }
+
+  m_canceled = false;
+  m_downloading = true;
+  m_downloadType = GribDownloadType::WORLD;
+
+  // Use default model (can be made configurable later)
+  wxString model = "ecmwf0p25";
+  
+  std::string url = BuildDownloadUrl(model.c_str(), latMin, lonMin, latMax, lonMax, durationHours);
+  
+  wxString filename = wxString::Format("ocpn_%s_%ih_%s.grb2", model.c_str(),
+                                       durationHours,
+                                       wxDateTime::Now().Format("%F-%H-%M"));
+  
+  wxString path = m_parent.GetGribDir();
+  path.Append(wxFileName::GetPathSeparator());
+  path.Append(filename);
+  
+  if (!m_connected) {
+    m_connected = true;
+    Connect(
+        wxEVT_DOWNLOAD_EVENT,
+        (wxObjectEventFunction)(wxEventFunction)&GribRequestSetting::onDLEvent);
+  }
+  
+  wxLogMessage("deeprey_grib_pi: Starting GRIB download via API: %s", url.c_str());
+  OCPN_downloadFileBackground(url, path, this, &m_download_handle);
+  
+  // Note: Download happens asynchronously. The onDLEvent callback will handle completion.
+  // Unlike the GUI path, we don't block here waiting for completion.
 }
 
 enum LocalSourceItem { SOURCE, AREA, GRIB };
