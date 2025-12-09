@@ -26,17 +26,17 @@ set(OCPN_RELEASE_REPO
 # Plugin Metadata
 # ============================================================================
 
-set(PKG_NAME deepreytemplate_pi)
+set(PKG_NAME deeprey_grib_pi)
 set(PKG_VERSION 1.0.0.0)
 set(PKG_PRERELEASE "")  # Empty, or a tag like 'beta'
 
-set(DISPLAY_NAME "deepreytemplate")      # Dialogs, installer artifacts
-set(PLUGIN_API_NAME "deepreytemplate")   # As of GetCommonName() in plugin API
-set(PKG_SUMMARY "Deeprey Template Plugin")
+set(DISPLAY_NAME "grib")      # Dialogs, installer artifacts (user-facing)
+set(PLUGIN_API_NAME "deeprey_grib")   # As of GetCommonName() in plugin API
+set(PKG_SUMMARY "Deeprey GRIB Plugin")
 set(PKG_DESCRIPTION [=[
-Reference template plugin for the Deeprey OpenCPN ecosystem.
-Demonstrates inter-plugin communication, chart overlay rendering,
-and configuration persistence.
+GRIB Plugin for the Deeprey OpenCPN ecosystem.
+Provides GRIB overlay rendering, inter-plugin communication,
+and configuration persistence for Deeprey-specific integrations.
 ]=])
 
 set(PKG_AUTHOR "Deeprey Research Ltd")

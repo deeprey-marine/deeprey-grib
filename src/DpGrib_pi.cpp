@@ -74,7 +74,7 @@ DpGrib_pi::DpGrib_pi(void *ppimgr) : opencpn_plugin_116(ppimgr) {
   // Create the PlugIn icons
   initialize_images();
 
-  wxString shareLocn = GetPluginDataDir("deepreytemplate_pi") +
+  wxString shareLocn = GetPluginDataDir("deeprey_grib_pi") +
                        wxFileName::GetPathSeparator() + _T("data") +
                        wxFileName::GetPathSeparator();
   wxImage panelIcon(shareLocn + _T("grib_panel_icon.png"));
@@ -198,7 +198,7 @@ bool DpGrib_pi::DeInit(void) {
     delete m_gribAPI;
     m_gribAPI = nullptr;
     UpdateApiPtr();  // Send nullptr notification to deepreygui
-    wxLogMessage("deepreytemplate_pi: API destroyed");
+    wxLogMessage("deeprey_grib_pi: API destroyed");
   }
 
   return true;
@@ -212,7 +212,7 @@ void DpGrib_pi::LateInit(void) {
   // This handles the case where deeprey-gui loaded before us.
   // If deeprey-gui loads later, it will send a discovery request and we respond.
   UpdateApiPtr();
-  wxLogMessage("deepreytemplate_pi: LateInit - API announced to deepreygui");
+  wxLogMessage("deeprey_grib_pi: LateInit - API announced to deepreygui");
 }
 
 int DpGrib_pi::GetAPIVersionMajor() { return MY_API_VERSION_MAJOR; }
@@ -225,7 +225,7 @@ int DpGrib_pi::GetPlugInVersionMinor() { return PLUGIN_VERSION_MINOR; }
 
 wxBitmap *DpGrib_pi::GetPlugInBitmap() { return &m_panelBitmap; }
 
-wxString DpGrib_pi::GetCommonName() { return _T("deepreytemplate"); }
+wxString DpGrib_pi::GetCommonName() { return _T("deeprey_grib"); }
 
 wxString DpGrib_pi::GetShortDescription() { return _("GRIB PlugIn for OpenCPN"); }
 
