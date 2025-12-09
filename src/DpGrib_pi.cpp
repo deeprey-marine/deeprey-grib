@@ -169,7 +169,7 @@ int DpGrib_pi::Init(void) {
 
   // Create API instance for communication with deepreygui
   if (!m_gribAPI) {
-    m_gribAPI = new DpGrib::DpGribAPI(&m_settings);
+    m_gribAPI = new DpGrib::DpGribAPI(&m_settings, this);
     wxLogMessage("deepreygrib_pi: API created");
   }
 
@@ -580,6 +580,8 @@ void DpGrib_pi::OnGribCtrlBarClose() {
 bool DpGrib_pi::RenderOverlay(wxDC &dc, PlugIn_ViewPort *vp) { return false; }
 
 bool DpGrib_pi::DoRenderOverlay(wxDC &dc, PlugIn_ViewPort *vp, int canvasIndex) {
+  if (!m_bShowGrib) return true;
+
   if (!m_pGribCtrlBar || !m_pGribCtrlBar->IsShown() || !m_pGRIBOverlayFactory)
     return false;
 
@@ -606,6 +608,8 @@ bool DpGrib_pi::RenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp) {
 
 bool DpGrib_pi::DoRenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                                 int canvasIndex) {
+  if (!m_bShowGrib) return true;
+
   if (!m_pGribCtrlBar || !m_pGribCtrlBar->IsShown() || !m_pGRIBOverlayFactory)
     return false;
 
@@ -672,6 +676,10 @@ void DpGrib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
   // When we receive our message ID, we respond with our API pointer.
   if (message_id == _T("DP_GUI_TO_GRIB")) {
     UpdateApiPtr();
+    // Toggle to show GRIB on charts
+    // if (!m_bShowGrib) {
+    //   OnToolbarToolCallback(0);  // This will toggle m_bShowGrib and show the dialog
+    // }
     return;
   }
 
@@ -929,6 +937,26 @@ void DpGrib_pi::SetPositionFixEx(PlugIn_Position_Fix_Ex &pfix) {
   } else {
     m_boat_time = wxDateTime::Now().GetTicks();
   }
+}
+
+// Internal methods for API access
+void DpGrib_pi::Internal_SetVisible(bool visible) {
+  // Only act if the desired state differs from current state
+  if (visible == m_bShowGrib) {
+    return;  // Already in desired state
+  }
+  
+  // Reuse the existing toolbar callback which handles all the UI logic
+  OnToolbarToolCallback(0);
+  
+  // Notify API callbacks that visibility changed
+  if (m_gribAPI) {
+    m_gribAPI->NotifyStateChanged();
+  }
+}
+
+bool DpGrib_pi::Internal_IsVisible() const {
+  return m_bShowGrib;
 }
 
 //----------------------------------------------------------------------------------------------------------

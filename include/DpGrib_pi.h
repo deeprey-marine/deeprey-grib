@@ -166,6 +166,10 @@ public:
 
   void UpdatePrefs(GribPreferencesDialog *Pref);
 
+  // Internal methods for API access
+  void Internal_SetVisible(bool visible);
+  bool Internal_IsVisible() const;
+
   int m_MenuItem;
   bool m_DialogStyleChanged;
 

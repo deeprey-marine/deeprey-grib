@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# Build script for GRIB plugin
+# This script builds the project and installs the plugin into OpenCPN
+
+BUILD_DIR="$HOME/deeprey-grib/build"
+OPENCPN_PLUGIN_PATH="$HOME/.local/lib/opencpn/libdeeprey_grib_pi.so"
+
+echo "Building GRIB plugin..."
+
+# Navigate to build directory
+cd "$BUILD_DIR" || { echo "Build directory not found: $BUILD_DIR"; exit 1; }
+
+# Configure the project with CMake
+cmake ..
+
+# Run make
+make -j$(nproc)
+
+# Check if build succeeded
+if [ $? -eq 0 ]; then
+    echo "Build successful. Installing plugin..."
+    # Copy the plugin to OpenCPN's plugin directory
+    cp libdeeprey_grib_pi.so "$OPENCPN_PLUGIN_PATH"
+    echo "Plugin installed to $OPENCPN_PLUGIN_PATH"
+else
+    echo "Build failed!"
+    exit 1
+fi

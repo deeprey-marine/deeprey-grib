@@ -7,7 +7,9 @@
  * All Rights Reserved
  *****************************************************************************/
 
+#include <GL/glew.h>
 #include "DpGribAPI.h"
+#include "DpGrib_pi.h"
 
 namespace DpGrib {
 
@@ -15,8 +17,9 @@ namespace DpGrib {
 // Constructor / Destructor
 // =============================================================================
 
-DpGribAPI::DpGribAPI(DpGribPersistentSettings* settings)
+DpGribAPI::DpGribAPI(DpGribPersistentSettings* settings, void* plugin)
     : m_settings(settings)
+    , m_plugin(plugin)
     , m_nextCallbackId(1)
 {
 }
@@ -57,6 +60,23 @@ int DpGribAPI::GetParameter() const {
 }
 
 // =============================================================================
+// Visibility Control
+// =============================================================================
+
+void DpGribAPI::SetVisible(bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetVisible(visible);
+    }
+}
+
+bool DpGribAPI::IsVisible() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsVisible();
+    }
+    return false;
+}
+
+// =============================================================================
 // Callback Management
 // =============================================================================
 
@@ -72,8 +92,9 @@ void DpGribAPI::RemoveStateChangedCallback(uint64_t callbackId) {
 
 void DpGribAPI::NotifyStateChanged() {
     // Call all registered callbacks
-    // Use a copy of the map in case a callback modifies the map
-    for (auto& [id, callback] : m_stateCallbacks) {
+    // Make a copy of the callback map in case a callback modifies it
+    auto callbacks = m_stateCallbacks;
+    for (auto& [id, callback] : callbacks) {
         if (callback) {
             callback();
         }
