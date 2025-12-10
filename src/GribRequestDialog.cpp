@@ -746,8 +746,38 @@ void GribRequestSetting::StartWorldDownloadFromAPI(double latMin, double lonMin,
   wxLogMessage("deeprey_grib_pi: Starting GRIB download via API: %s", url.c_str());
   OCPN_downloadFileBackground(url, path, this, &m_download_handle);
 
-  // Note: Download happens asynchronously. The onDLEvent callback will handle completion.
-  // Unlike the GUI path, we don't block here waiting for completion.
+  // Wait for download to complete
+  while (m_downloading) {
+    wxTheApp->ProcessPendingEvents();
+    wxMilliSleep(10);
+  }
+
+  if (!m_canceled) {
+    if (m_bTransferSuccess) {
+        wxFileName fn(path);
+        m_parent.m_grib_dir = fn.GetPath();
+        m_parent.m_file_names.Clear();
+        m_parent.m_file_names.Add(path);
+        
+        m_parent.OpenFile(); // This parses and displays the GRIB
+        
+        if (m_parent.pPlugIn) {
+            if (m_parent.pPlugIn->m_bZoomToCenterAtInit) m_parent.DoZoomToCenter();
+        }
+        
+        m_parent.SetDialogsStyleSizePosition(true);
+        
+        SaveConfig(); 
+        
+
+    } else {
+        wxLogMessage("deeprey_grib_pi: Download failed.");
+    }
+  } else {
+      wxLogMessage("deeprey_grib_pi: Download canceled.");
+  }
+
+  m_downloadType = GribDownloadType::NONE;
 }
 
 void GribRequestSetting::CancelCurrentDownload() {
