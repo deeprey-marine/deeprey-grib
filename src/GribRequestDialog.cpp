@@ -33,6 +33,8 @@
 #include <wx/wfstream.h>
 #include "DpGrib_pi.h"
 
+extern DpGrib_pi *g_pi;
+
 #include <unordered_map>
 
 #define RESOLUTIONS 4
@@ -541,6 +543,13 @@ void GribRequestSetting::onDLEvent(OCPN_downloadEvent &ev) {
       m_connected = false;
       m_downloading = false;
       m_download_handle = 0;
+
+      // Notify API consumers that download completed
+      if (g_pi) {
+        g_pi->NotifyDownloadProgress(ev.getTransferred(), ev.getTotal(),
+                                     true, m_bTransferSuccess);
+      }
+
       wxYieldIfNeeded();
       break;
 
@@ -588,6 +597,13 @@ void GribRequestSetting::onDLEvent(OCPN_downloadEvent &ev) {
           }
         }
       }
+
+      // Notify API consumers of download progress
+      if (g_pi) {
+        g_pi->NotifyDownloadProgress(ev.getTransferred(), ev.getTotal(),
+                                     false, false);
+      }
+
       wxYieldIfNeeded();
       break;
     default:
@@ -729,9 +745,30 @@ void GribRequestSetting::StartWorldDownloadFromAPI(double latMin, double lonMin,
   
   wxLogMessage("deeprey_grib_pi: Starting GRIB download via API: %s", url.c_str());
   OCPN_downloadFileBackground(url, path, this, &m_download_handle);
-  
+
   // Note: Download happens asynchronously. The onDLEvent callback will handle completion.
   // Unlike the GUI path, we don't block here waiting for completion.
+}
+
+void GribRequestSetting::CancelCurrentDownload() {
+  if (!m_downloading) return;
+
+  OCPN_cancelDownloadFileBackground(m_download_handle);
+  m_downloading = false;
+  m_download_handle = 0;
+  if (m_connected) {
+    Disconnect(
+        wxEVT_DOWNLOAD_EVENT,
+        (wxObjectEventFunction)(wxEventFunction)&GribRequestSetting::onDLEvent);
+    m_connected = false;
+  }
+  m_canceled = true;
+  m_downloadType = GribDownloadType::NONE;
+
+  // Notify API consumers that download was cancelled
+  if (g_pi) {
+    g_pi->NotifyDownloadProgress(0, 0, true, false);
+  }
 }
 
 enum LocalSourceItem { SOURCE, AREA, GRIB };

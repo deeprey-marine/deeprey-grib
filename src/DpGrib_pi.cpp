@@ -959,13 +959,33 @@ bool DpGrib_pi::Internal_IsVisible() const {
   return m_bShowGrib;
 }
 
-void DpGrib_pi::Internal_StartWorldDownload(double latMin, double lonMin, 
-                                            double latMax, double lonMax, 
+void DpGrib_pi::Internal_StartWorldDownload(double latMin, double lonMin,
+                                            double latMax, double lonMax,
                                             int durationHours) {
 
   // Forward to the request dialog's API download method
   m_pGribCtrlBar->pReq_Dialog->StartWorldDownloadFromAPI(
       latMin, lonMin, latMax, lonMax, durationHours);
+}
+
+bool DpGrib_pi::Internal_IsDownloading() const {
+  if (m_pGribCtrlBar && m_pGribCtrlBar->pReq_Dialog) {
+    return m_pGribCtrlBar->pReq_Dialog->IsDownloading();
+  }
+  return false;
+}
+
+void DpGrib_pi::Internal_CancelDownload() {
+  if (m_pGribCtrlBar && m_pGribCtrlBar->pReq_Dialog) {
+    m_pGribCtrlBar->pReq_Dialog->CancelCurrentDownload();
+  }
+}
+
+void DpGrib_pi::NotifyDownloadProgress(long transferred, long total,
+                                        bool completed, bool success) {
+  if (m_gribAPI) {
+    m_gribAPI->NotifyDownloadProgress(transferred, total, completed, success);
+  }
 }
 
 //----------------------------------------------------------------------------------------------------------

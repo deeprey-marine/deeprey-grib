@@ -207,13 +207,24 @@ public:
    * API consumer (e.g., deeprey-gui).
    *
    * @param latMin Minimum latitude of bounding box
-   * @param lonMin Minimum longitude of bounding box  
+   * @param lonMin Minimum longitude of bounding box
    * @param latMax Maximum latitude of bounding box
    * @param lonMax Maximum longitude of bounding box
    * @param durationHours Forecast duration in hours
    */
   void StartWorldDownloadFromAPI(double latMin, double lonMin, double latMax,
                                   double lonMax, int durationHours);
+
+  /**
+   * Check if a download is currently in progress.
+   * @return true if downloading, false otherwise
+   */
+  bool IsDownloading() const { return m_downloading; }
+
+  /**
+   * Cancel the current download if one is in progress.
+   */
+  void CancelCurrentDownload();
 
   wxString m_RequestConfigBase;
   wxString m_MailToAddresses;

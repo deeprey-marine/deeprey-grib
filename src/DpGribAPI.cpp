@@ -27,6 +27,7 @@ DpGribAPI::DpGribAPI(DpGribPersistentSettings* settings, void* plugin)
 DpGribAPI::~DpGribAPI() {
     // Clear all callbacks on destruction
     m_stateCallbacks.clear();
+    m_progressCallbacks.clear();
 }
 
 // =============================================================================
@@ -119,6 +120,48 @@ void DpGribAPI::StartWorldDownload(double latMin, double lonMin, double latMax,
 
 DpGribPersistentSettings* DpGribAPI::GetSettings() {
     return m_settings;
+}
+
+// =============================================================================
+// Download State
+// =============================================================================
+
+bool DpGribAPI::IsDownloading() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsDownloading();
+    }
+    return false;
+}
+
+void DpGribAPI::CancelDownload() {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_CancelDownload();
+    }
+}
+
+// =============================================================================
+// Download Progress Callbacks
+// =============================================================================
+
+uint64_t DpGribAPI::AddDownloadProgressCallback(DownloadProgressCallback callback) {
+    uint64_t id = m_nextCallbackId++;
+    m_progressCallbacks[id] = std::move(callback);
+    return id;
+}
+
+void DpGribAPI::RemoveDownloadProgressCallback(uint64_t callbackId) {
+    m_progressCallbacks.erase(callbackId);
+}
+
+void DpGribAPI::NotifyDownloadProgress(long transferred, long total,
+                                        bool completed, bool success) {
+    // Make a copy in case a callback modifies the map
+    auto callbacks = m_progressCallbacks;
+    for (auto& [id, callback] : callbacks) {
+        if (callback) {
+            callback(transferred, total, completed, success);
+        }
+    }
 }
 
 } // namespace DpGrib
