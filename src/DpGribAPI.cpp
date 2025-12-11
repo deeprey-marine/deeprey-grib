@@ -198,6 +198,13 @@ bool DpGribAPI::IsLayerVisible(int layerId) const {
     return false;
 }
 
+bool DpGribAPI::IsLayerAvailable(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsLayerAvailable(layerId);
+    }
+    return false;
+}
+
 wxString DpGribAPI::GetLayerValueAtPoint(int layerId, double latitude, double longitude) const {
     if (m_plugin) {
         return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetLayerValueAtPoint(layerId, latitude, longitude);

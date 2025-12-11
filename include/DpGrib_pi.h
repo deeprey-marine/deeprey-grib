@@ -185,6 +185,7 @@ public:
   // Layer management
   bool Internal_SetLayerVisible(int layerId, bool visible);
   bool Internal_IsLayerVisible(int layerId) const;
+  bool Internal_IsLayerAvailable(int layerId) const;
   wxString Internal_GetLayerValueAtPoint(int layerId, double latitude, double longitude) const;
 
   int m_MenuItem;

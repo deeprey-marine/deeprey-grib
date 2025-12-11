@@ -26,3 +26,4 @@ cmake_byVsCode/
 .cache/clangd/
 compile_commands.json
 CMakeLists.txt.user
+*.md

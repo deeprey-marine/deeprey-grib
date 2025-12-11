@@ -1096,6 +1096,47 @@ bool DpGrib_pi::Internal_IsLayerVisible(int layerId) const {
   return m_pGribCtrlBar->m_bDataPlot[layerId];
 }
 
+bool DpGrib_pi::Internal_IsLayerAvailable(int layerId) const {
+  wxLogDebug("DpGrib_pi::Internal_IsLayerAvailable(%d) called", layerId);
+
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile)
+    return false;
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT)
+    return false;
+
+  const GRIBFile::GribIdxArray &idxArray = m_pGribCtrlBar->m_bGRIBActiveFile->m_GribIdxArray;
+
+  switch (layerId) {
+    case GribOverlaySettings::WIND:
+      return (idxArray.Index(Idx_WIND_VX) != wxNOT_FOUND) &&
+             (idxArray.Index(Idx_WIND_VY) != wxNOT_FOUND);
+    case GribOverlaySettings::WIND_GUST:
+      return (idxArray.Index(Idx_WIND_GUST) != wxNOT_FOUND);
+    case GribOverlaySettings::PRESSURE:
+      return (idxArray.Index(Idx_PRESSURE) != wxNOT_FOUND);
+    case GribOverlaySettings::WAVE:
+      return (idxArray.Index(Idx_HTSIGW) != wxNOT_FOUND);
+    case GribOverlaySettings::CURRENT:
+      return (idxArray.Index(Idx_SEACURRENT_VX) != wxNOT_FOUND) &&
+             (idxArray.Index(Idx_SEACURRENT_VY) != wxNOT_FOUND);
+    case GribOverlaySettings::PRECIPITATION:
+      return (idxArray.Index(Idx_PRECIP_TOT) != wxNOT_FOUND);
+    case GribOverlaySettings::CLOUD:
+      return (idxArray.Index(Idx_CLOUD_TOT) != wxNOT_FOUND);
+    case GribOverlaySettings::AIR_TEMPERATURE:
+      return (idxArray.Index(Idx_AIR_TEMP) != wxNOT_FOUND);
+    case GribOverlaySettings::SEA_TEMPERATURE:
+      return (idxArray.Index(Idx_SEA_TEMP) != wxNOT_FOUND);
+    case GribOverlaySettings::CAPE:
+      return (idxArray.Index(Idx_CAPE) != wxNOT_FOUND);
+    case GribOverlaySettings::COMP_REFL:
+      return (idxArray.Index(Idx_COMP_REFL) != wxNOT_FOUND);
+    default:
+      return false;
+  }
+}
+
 wxString DpGrib_pi::Internal_GetLayerValueAtPoint(int layerId, double latitude, double longitude) const {
   if (!m_pGribCtrlBar) {
     return wxEmptyString;
