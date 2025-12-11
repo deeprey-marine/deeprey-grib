@@ -1,5 +1,8 @@
-/build
-/build_*
+# Build directories and artifacts (ignore all build outputs)
+/build/
+/build_*/
+**/build/
+**/build_*/
 
 # all build  
 /cache/

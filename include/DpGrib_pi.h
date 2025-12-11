@@ -174,6 +174,18 @@ public:
   bool Internal_IsDownloading() const;
   void Internal_CancelDownload();
   void NotifyDownloadProgress(long transferred, long total, bool completed, bool success);
+  
+  // Timeline management
+  int Internal_GetTimeStepCount() const;
+  int Internal_GetCurrentTimeIndex() const;
+  bool Internal_SetTimeIndex(int index);
+  wxString Internal_GetCurrentTimeString() const;
+  wxString Internal_GetTimeString(int index) const;
+  
+  // Layer management
+  bool Internal_SetLayerVisible(int layerId, bool visible);
+  bool Internal_IsLayerVisible(int layerId) const;
+  wxString Internal_GetLayerValueAtPoint(int layerId, double latitude, double longitude) const;
 
   int m_MenuItem;
   bool m_DialogStyleChanged;

@@ -649,6 +649,11 @@ bool DpGrib_pi::RenderOverlayMultiCanvas(wxDC &dc, PlugIn_ViewPort *vp,
 void DpGrib_pi::SetCursorLatLon(double lat, double lon) {
   if (m_pGribCtrlBar && m_pGribCtrlBar->IsShown())
     m_pGribCtrlBar->SetCursorLatLon(lat, lon);
+  
+  // Notify API listeners about cursor position change
+  if (m_gribAPI) {
+    static_cast<DpGrib::DpGribAPI*>(m_gribAPI)->NotifyCursorPosition(lat, lon);
+  }
 }
 
 void DpGrib_pi::OnContextMenuItemCallback(int id) {
@@ -986,6 +991,179 @@ void DpGrib_pi::NotifyDownloadProgress(long transferred, long total,
   if (m_gribAPI) {
     m_gribAPI->NotifyDownloadProgress(transferred, total, completed, success);
   }
+}
+
+//----------------------------------------------------------------------------------------------------------
+//          Timeline Management Implementation
+//----------------------------------------------------------------------------------------------------------
+int DpGrib_pi::Internal_GetTimeStepCount() const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return 0;
+  }
+  
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return 0;
+  
+  return rsa->GetCount();
+}
+
+int DpGrib_pi::Internal_GetCurrentTimeIndex() const {
+  if (!m_pGribCtrlBar) {
+    return -1;
+  }
+  return m_pGribCtrlBar->m_cRecordForecast->GetCurrentSelection();
+}
+
+bool DpGrib_pi::Internal_SetTimeIndex(int index) {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return false;
+  }
+  
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return false;
+  
+  int count = rsa->GetCount();
+  if (index < 0 || index >= count) {
+    return false;
+  }
+  
+  m_pGribCtrlBar->m_cRecordForecast->SetSelection(index);
+  m_pGribCtrlBar->TimelineChanged();
+  RequestRefresh(m_parent_window);
+  return true;
+}
+
+wxString DpGrib_pi::Internal_GetCurrentTimeString() const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return wxEmptyString;
+  }
+  
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa || rsa->GetCount() == 0) return wxEmptyString;
+  
+  int index = m_pGribCtrlBar->m_cRecordForecast->GetCurrentSelection();
+  if (index < 0 || index >= (int)rsa->GetCount()) {
+    return wxEmptyString;
+  }
+  
+  wxDateTime time = rsa->Item(index).m_Reference_Time;
+  return time.Format(_T("%Y-%m-%d %H:%M UTC"));
+}
+
+wxString DpGrib_pi::Internal_GetTimeString(int index) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return wxEmptyString;
+  }
+  
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return wxEmptyString;
+  
+  int count = rsa->GetCount();
+  if (index < 0 || index >= count) {
+    return wxEmptyString;
+  }
+  
+  wxDateTime time = rsa->Item(index).m_Reference_Time;
+  return time.Format(_T("%Y-%m-%d %H:%M UTC"));
+}
+
+//----------------------------------------------------------------------------------------------------------
+//          Layer Management Implementation
+//----------------------------------------------------------------------------------------------------------
+bool DpGrib_pi::Internal_SetLayerVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    return false;
+  }
+  
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    return false;
+  }
+  
+  m_pGribCtrlBar->m_bDataPlot[layerId] = visible;
+  RequestRefresh(m_parent_window);
+  return true;
+}
+
+bool DpGrib_pi::Internal_IsLayerVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    return false;
+  }
+  
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    return false;
+  }
+  
+  return m_pGribCtrlBar->m_bDataPlot[layerId];
+}
+
+wxString DpGrib_pi::Internal_GetLayerValueAtPoint(int layerId, double latitude, double longitude) const {
+  if (!m_pGribCtrlBar) {
+    return wxEmptyString;
+  }
+  
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    return wxEmptyString;
+  }
+  
+  wxDateTime time = m_pGribCtrlBar->TimelineTime();
+  
+  // Use the control bar's built-in interpolation methods
+  double value = 0.0;
+  double angle = 0.0;
+  wxString result;
+  
+  switch (layerId) {
+    case GribOverlaySettings::WIND: {
+      if (m_pGribCtrlBar->getTimeInterpolatedValues(value, angle, Idx_WIND_VX, Idx_WIND_VY, longitude, latitude, time)) {
+        value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::WIND, value);
+        return wxString::Format(_T("%.1f %s @ %.0f°"), value, 
+                               m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::WIND),
+                               angle);
+      }
+      break;
+    }
+    case GribOverlaySettings::WIND_GUST: {
+      value = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_WIND_GUST, longitude, latitude, time);
+      if (!std::isnan(value)) {
+        value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::WIND_GUST, value);
+        return wxString::Format(_T("%.1f %s"), value,
+                               m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::WIND_GUST));
+      }
+      break;
+    }
+    case GribOverlaySettings::PRESSURE: {
+      value = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_PRESSURE, longitude, latitude, time);
+      if (!std::isnan(value)) {
+        value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::PRESSURE, value);
+        return wxString::Format(_T("%.1f %s"), value,
+                               m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::PRESSURE));
+      }
+      break;
+    }
+    case GribOverlaySettings::AIR_TEMPERATURE: {
+      value = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_AIR_TEMP, longitude, latitude, time);
+      if (!std::isnan(value)) {
+        value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::AIR_TEMPERATURE, value);
+        return wxString::Format(_T("%.1f %s"), value,
+                               m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::AIR_TEMPERATURE));
+      }
+      break;
+    }
+    case GribOverlaySettings::SEA_TEMPERATURE: {
+      value = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_SEA_TEMP, longitude, latitude, time);
+      if (!std::isnan(value)) {
+        value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::SEA_TEMPERATURE, value);
+        return wxString::Format(_T("%.1f %s"), value,
+                               m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::SEA_TEMPERATURE));
+      }
+      break;
+    }
+    // Add more cases as needed
+    default:
+      break;
+  }
+  
+  return wxEmptyString;
 }
 
 //----------------------------------------------------------------------------------------------------------

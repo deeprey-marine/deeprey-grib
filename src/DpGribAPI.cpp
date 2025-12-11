@@ -8,6 +8,7 @@
  *****************************************************************************/
 
 #include <GL/glew.h>
+#include <cmath>
 #include "DpGribAPI.h"
 #include "DpGrib_pi.h"
 
@@ -28,6 +29,7 @@ DpGribAPI::~DpGribAPI() {
     // Clear all callbacks on destruction
     m_stateCallbacks.clear();
     m_progressCallbacks.clear();
+    m_cursorCallbacks.clear();
 }
 
 // =============================================================================
@@ -136,6 +138,101 @@ bool DpGribAPI::IsDownloading() const {
 void DpGribAPI::CancelDownload() {
     if (m_plugin) {
         static_cast<DpGrib_pi*>(m_plugin)->Internal_CancelDownload();
+    }
+}
+
+// =============================================================================
+// Timeline / GRIB Record Management
+// =============================================================================
+
+int DpGribAPI::GetTimeStepCount() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetTimeStepCount();
+    }
+    return 0;
+}
+
+int DpGribAPI::GetCurrentTimeIndex() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetCurrentTimeIndex();
+    }
+    return -1;
+}
+
+bool DpGribAPI::SetTimeIndex(int index) {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_SetTimeIndex(index);
+    }
+    return false;
+}
+
+wxString DpGribAPI::GetCurrentTimeString() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetCurrentTimeString();
+    }
+    return wxEmptyString;
+}
+
+wxString DpGribAPI::GetTimeString(int index) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetTimeString(index);
+    }
+    return wxEmptyString;
+}
+
+// =============================================================================
+// Layer / Data Field Management
+// =============================================================================
+
+bool DpGribAPI::SetLayerVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_SetLayerVisible(layerId, visible);
+    }
+    return false;
+}
+
+bool DpGribAPI::IsLayerVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsLayerVisible(layerId);
+    }
+    return false;
+}
+
+wxString DpGribAPI::GetLayerValueAtPoint(int layerId, double latitude, double longitude) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetLayerValueAtPoint(layerId, latitude, longitude);
+    }
+    return wxString(_T("--"));
+}
+
+wxString DpGribAPI::GetLayerValueAtCursor(int layerId) const {
+    // Dummy: return placeholder; real implementation would read last cursor position
+    if (std::isnan(m_lastCursorLat) || std::isnan(m_lastCursorLon))
+        return wxString(_T("--"));
+    return GetLayerValueAtPoint(layerId, m_lastCursorLat, m_lastCursorLon);
+}
+
+// =============================================================================
+// Cursor Position Callbacks
+// =============================================================================
+
+uint64_t DpGribAPI::AddCursorPositionCallback(CursorPositionCallback callback) {
+    uint64_t id = m_nextCallbackId++;
+    m_cursorCallbacks[id] = std::move(callback);
+    return id;
+}
+
+void DpGribAPI::RemoveCursorPositionCallback(uint64_t callbackId) {
+    m_cursorCallbacks.erase(callbackId);
+}
+
+void DpGribAPI::NotifyCursorPosition(double latitude, double longitude) {
+    m_lastCursorLat = latitude;
+    m_lastCursorLon = longitude;
+    auto callbacks = m_cursorCallbacks;
+    for (auto &kv : callbacks) {
+        auto &callback = kv.second;
+        if (callback) callback(latitude, longitude);
     }
 }
 

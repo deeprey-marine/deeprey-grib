@@ -177,6 +177,7 @@ public:
 //----------------------------------------------------------------------------------------------------------
 class GRIBUICtrlBar : public GRIBUICtrlBarBase {
   friend class GribRequestSetting;
+  friend class DpGrib_pi;
 
 public:
   GRIBUICtrlBar(wxWindow *parent, wxWindowID id, const wxString &title,
