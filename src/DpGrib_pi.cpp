@@ -1152,65 +1152,10 @@ wxString DpGrib_pi::Internal_GetLayerValueAtPoint(int layerId, double latitude, 
     return wxEmptyString;
   }
   
-  wxDateTime time = m_pGribCtrlBar->TimelineTime();
-  
-  // Use the control bar's built-in interpolation methods
-  double value = 0.0;
-  double angle = 0.0;
-  wxString result;
-  
-  switch (layerId) {
-    case GribOverlaySettings::WIND: {
-      if (m_pGribCtrlBar->getTimeInterpolatedValues(value, angle, Idx_WIND_VX, Idx_WIND_VY, longitude, latitude, time)) {
-        value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::WIND, value);
-        return wxString::Format(_T("%.1f %s @ %.0f°"), value, 
-                               m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::WIND),
-                               angle);
-      }
-      break;
-    }
-    case GribOverlaySettings::WIND_GUST: {
-      value = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_WIND_GUST, longitude, latitude, time);
-      if (!std::isnan(value)) {
-        value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::WIND_GUST, value);
-        return wxString::Format(_T("%.1f %s"), value,
-                               m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::WIND_GUST));
-      }
-      break;
-    }
-    case GribOverlaySettings::PRESSURE: {
-      value = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_PRESSURE, longitude, latitude, time);
-      if (!std::isnan(value)) {
-        value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::PRESSURE, value);
-        return wxString::Format(_T("%.1f %s"), value,
-                               m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::PRESSURE));
-      }
-      break;
-    }
-    case GribOverlaySettings::AIR_TEMPERATURE: {
-      value = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_AIR_TEMP, longitude, latitude, time);
-      if (!std::isnan(value)) {
-        value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::AIR_TEMPERATURE, value);
-        return wxString::Format(_T("%.1f %s"), value,
-                               m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::AIR_TEMPERATURE));
-      }
-      break;
-    }
-    case GribOverlaySettings::SEA_TEMPERATURE: {
-      value = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_SEA_TEMP, longitude, latitude, time);
-      if (!std::isnan(value)) {
-        value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::SEA_TEMPERATURE, value);
-        return wxString::Format(_T("%.1f %s"), value,
-                               m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::SEA_TEMPERATURE));
-      }
-      break;
-    }
-    // Add more cases as needed
-    default:
-      break;
-  }
-  
-  return wxEmptyString;
+  // Use the control bar's helper method for consistent formatting
+  // Returns const reference - no copy overhead
+  const GribLayerValue& result = m_pGribCtrlBar->GetFormattedLayerValueAtPoint(layerId, longitude, latitude);
+  return result.formatted;
 }
 
 //----------------------------------------------------------------------------------------------------------

@@ -1670,6 +1670,119 @@ bool GRIBUICtrlBar::getTimeInterpolatedValues(double &M, double &A, int idx1,
   return true;
 }
 
+const GribLayerValue& GRIBUICtrlBar::GetFormattedVectorValueAtPoint(int idx1, int idx2,
+                                                                   double lon,
+                                                                   double lat,
+                                                                   int unitType) {
+  // Initialize cache
+  m_cachedLayerValue.valid = false;
+  
+  if (!m_bGRIBActiveFile) return m_cachedLayerValue;
+
+  wxDateTime time = TimelineTime();
+  double magnitude = 0.0;
+  double angle = 0.0;
+
+  if (!getTimeInterpolatedValues(magnitude, angle, idx1, idx2, lon, lat, time))
+    return m_cachedLayerValue;
+
+  // Calibrate the magnitude value
+  double calibrated = m_OverlaySettings.CalibrateValue(unitType, magnitude);
+  wxString unit = m_OverlaySettings.GetUnitSymbol(unitType);
+
+  // Store the raw and calibrated values in cache
+  m_cachedLayerValue.valid = true;
+  m_cachedLayerValue.value = calibrated;
+  m_cachedLayerValue.angle = angle;
+  m_cachedLayerValue.valueString = wxString::Format(_T("%.1f %s"), calibrated, unit);
+  m_cachedLayerValue.angleString = wxString::Format(_T("%.0f°"), angle);
+  m_cachedLayerValue.formatted =
+      wxString::Format(_T("%.1f %s @ %.0f°"), calibrated, unit, angle);
+
+  return m_cachedLayerValue;
+}
+
+const GribLayerValue& GRIBUICtrlBar::GetFormattedLayerValueAtPoint(int layerId,
+                                                                    double lon,
+                                                                    double lat) {
+  // Initialize cache
+  m_cachedLayerValue.valid = false;
+  
+  if (!m_bGRIBActiveFile) return m_cachedLayerValue;
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT)
+    return m_cachedLayerValue;
+
+  wxDateTime time = TimelineTime();
+  double value = 0.0;
+
+  switch (layerId) {
+    case GribOverlaySettings::WIND: {
+      return GetFormattedVectorValueAtPoint(Idx_WIND_VX, Idx_WIND_VY, lon, lat,
+                                            GribOverlaySettings::WIND);
+    }
+    case GribOverlaySettings::WIND_GUST: {
+      value = getTimeInterpolatedValue(Idx_WIND_GUST, lon, lat, time);
+      if (value != GRIB_NOTDEF) {
+        value = m_OverlaySettings.CalibrateValue(GribOverlaySettings::WIND_GUST,
+                                                  value);
+        wxString unit =
+            m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::WIND_GUST);
+        m_cachedLayerValue.valid = true;
+        m_cachedLayerValue.value = value;
+        m_cachedLayerValue.valueString = wxString::Format(_T("%.1f %s"), value, unit);
+        m_cachedLayerValue.formatted = m_cachedLayerValue.valueString;
+      }
+      break;
+    }
+    case GribOverlaySettings::PRESSURE: {
+      value = getTimeInterpolatedValue(Idx_PRESSURE, lon, lat, time);
+      if (value != GRIB_NOTDEF) {
+        value = m_OverlaySettings.CalibrateValue(GribOverlaySettings::PRESSURE,
+                                                  value);
+        wxString unit =
+            m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::PRESSURE);
+        m_cachedLayerValue.valid = true;
+        m_cachedLayerValue.value = value;
+        m_cachedLayerValue.valueString = wxString::Format(_T("%.1f %s"), value, unit);
+        m_cachedLayerValue.formatted = m_cachedLayerValue.valueString;
+      }
+      break;
+    }
+    case GribOverlaySettings::AIR_TEMPERATURE: {
+      value = getTimeInterpolatedValue(Idx_AIR_TEMP, lon, lat, time);
+      if (value != GRIB_NOTDEF) {
+        value =
+            m_OverlaySettings.CalibrateValue(GribOverlaySettings::AIR_TEMPERATURE, value);
+        wxString unit = m_OverlaySettings.GetUnitSymbol(
+            GribOverlaySettings::AIR_TEMPERATURE);
+        m_cachedLayerValue.valid = true;
+        m_cachedLayerValue.value = value;
+        m_cachedLayerValue.valueString = wxString::Format(_T("%.1f %s"), value, unit);
+        m_cachedLayerValue.formatted = m_cachedLayerValue.valueString;
+      }
+      break;
+    }
+    case GribOverlaySettings::SEA_TEMPERATURE: {
+      value = getTimeInterpolatedValue(Idx_SEA_TEMP, lon, lat, time);
+      if (value != GRIB_NOTDEF) {
+        value =
+            m_OverlaySettings.CalibrateValue(GribOverlaySettings::SEA_TEMPERATURE, value);
+        wxString unit = m_OverlaySettings.GetUnitSymbol(
+            GribOverlaySettings::SEA_TEMPERATURE);
+        m_cachedLayerValue.valid = true;
+        m_cachedLayerValue.value = value;
+        m_cachedLayerValue.valueString = wxString::Format(_T("%.1f %s"), value, unit);
+        m_cachedLayerValue.formatted = m_cachedLayerValue.valueString;
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return m_cachedLayerValue;
+}
+
 void GRIBUICtrlBar::OnTimeline(wxScrollEvent &event) {
   StopPlayBack();
   m_InterpolateMode = m_OverlaySettings.m_bInterpolate;
