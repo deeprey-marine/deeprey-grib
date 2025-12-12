@@ -1142,6 +1142,12 @@ wxString DpGrib_pi::Internal_GetLayerValueAtPoint(int layerId, double latitude, 
     return wxEmptyString;
   }
   
+  // Safety check: Return empty if no GRIB file is loaded yet
+  // This prevents crashes during download initialization (reentrancy bug)
+  if (!m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return wxEmptyString;
+  }
+  
   if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
     return wxEmptyString;
   }

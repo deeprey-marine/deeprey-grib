@@ -206,7 +206,9 @@ bool DpGribAPI::IsLayerAvailable(int layerId) const {
 }
 
 wxString DpGribAPI::GetLayerValueAtPoint(int layerId, double latitude, double longitude) const {
-    if (m_plugin) {
+    // Safety check: Return placeholder if no timesteps are available
+    // This prevents crashes during download initialization (reentrancy bug)
+    if (m_plugin && GetTimeStepCount() > 0) {
         return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetLayerValueAtPoint(layerId, latitude, longitude);
     }
     return wxString(_T("--"));

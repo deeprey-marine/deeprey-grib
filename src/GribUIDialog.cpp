@@ -1424,6 +1424,12 @@ wxDateTime GRIBUICtrlBar::GetNow() {
 }
 
 wxDateTime GRIBUICtrlBar::TimelineTime() {
+  // Safety check: Return current time if no GRIB file is loaded
+  // This prevents crashes during download initialization (reentrancy bug)
+  if (!m_bGRIBActiveFile) {
+    return wxDateTime::Now();
+  }
+
   if (m_InterpolateMode) {
     int tl = (m_TimeLineHours == 0) ? 0 : m_sTimeline->GetValue();
     int stepmin =
@@ -1441,6 +1447,12 @@ wxDateTime GRIBUICtrlBar::TimelineTime() {
 }
 
 wxDateTime GRIBUICtrlBar::MinTime() {
+  // Safety check: Return current time if no GRIB file is loaded
+  // This prevents crashes during download initialization (reentrancy bug)
+  if (!m_bGRIBActiveFile) {
+    return wxDateTime::Now();
+  }
+
   ArrayOfGribRecordSets *rsa = m_bGRIBActiveFile->GetRecordSetArrayPtr();
   if (rsa && rsa->GetCount()) {
     GribRecordSet &first = rsa->Item(0);
