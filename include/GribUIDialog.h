@@ -194,6 +194,25 @@ struct GribLayerValue {
   GribLayerValue() : valid(false), value(0.0), angle(0.0) {}
 };
 
+/**
+ * Structure to represent formatted GRIB wave data (height + period) at a point.
+ * Handles coupled wave data where height and period are logically related.
+ * 
+ * Supports both display modes:
+ * 1. SEPARATED_VERTICAL: height and period in separate fields
+ * 2. Inline: height and period combined as "height - period"
+ */
+struct GribWaveValue {
+  bool valid;              //!< True if wave height was available
+  wxString heightStr;      //!< Formatted wave height (e.g., "1.5 m")
+  double height;           //!< Raw height value (after calibration)
+  bool periodValid;        //!< True if wave period was available
+  wxString periodStr;      //!< Formatted wave period (e.g., "08s")
+  double period;           //!< Raw period value
+  
+  GribWaveValue() : valid(false), height(0.0), periodValid(false), period(0.0) {}
+};
+
 //----------------------------------------------------------------------------------------------------------
 //    GRIB CtrlBar Specification
 //----------------------------------------------------------------------------------------------------------
@@ -309,6 +328,23 @@ public:
    * @return const reference to cached GribLayerValue with formatted string; use .formatted for simple display
    */
   const GribLayerValue& GetFormattedLayerValueAtPoint(int layerId, double lon, double lat);
+  
+  /**
+   * Get formatted GRIB wave data (height + period) at a point.
+   * 
+   * Handles coupled wave data with support for both display modes:
+   * - SEPARATED_VERTICAL: height and period in separate fields
+   * - Inline: height and period combined as "height - period"
+   * 
+   * Returns a const reference to a cached result. The reference remains valid
+   * until the next call to any GetFormatted* method.
+   * 
+   * @param lon Longitude in degrees
+   * @param lat Latitude in degrees
+   * @param dialogStyle Display mode (SEPARATED_VERTICAL or inline)
+   * @return const reference to cached GribWaveValue with formatted height and period
+   */
+  const GribWaveValue& GetFormattedWaveValueAtPoint(double lon, double lat, int dialogStyle);
 
   wxWindow *pParent;
   /** Settings that control how GRIB data is displayed and overlaid. */
@@ -461,6 +497,7 @@ private:
   
   // Cache for formatted GRIB values to avoid struct copies
   mutable GribLayerValue m_cachedLayerValue;
+  mutable GribWaveValue m_cachedWaveValue;
 };
 
 /**

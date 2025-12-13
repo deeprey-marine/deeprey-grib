@@ -1669,7 +1669,44 @@ bool GRIBUICtrlBar::getTimeInterpolatedValues(double &M, double &A, int idx1,
   A = (1.0 - k) * v1a + k * v2a;
   return true;
 }
+const GribWaveValue& GRIBUICtrlBar::GetFormattedWaveValueAtPoint(double lon, double lat,
+                                                                  int dialogStyle) {
+  // Initialize cache
+  m_cachedWaveValue.valid = false;
+  m_cachedWaveValue.periodValid = false;
 
+  if (!m_bGRIBActiveFile) return m_cachedWaveValue;
+
+  wxDateTime time = TimelineTime();
+  GribTimelineRecordSet *recordSet = GetTimeLineRecordSet(time);
+  if (!recordSet) return m_cachedWaveValue;
+
+  GribRecord **RecordArray = recordSet->m_GribRecordPtrArray;
+
+  // Get wave height
+  if (RecordArray[Idx_HTSIGW]) {
+    double height = RecordArray[Idx_HTSIGW]->getInterpolatedValue(lon, lat, true);
+    if (height != GRIB_NOTDEF) {
+      height = m_OverlaySettings.CalibrateValue(GribOverlaySettings::WAVE, height);
+      wxString unit = m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::WAVE);
+      m_cachedWaveValue.valid = true;
+      m_cachedWaveValue.height = height;
+      m_cachedWaveValue.heightStr = wxString::Format(_T("%4.1f %s"), height, unit);
+    }
+  }
+
+  // Get wave period (if available)
+  if (RecordArray[Idx_WVPER]) {
+    double period = RecordArray[Idx_WVPER]->getInterpolatedValue(lon, lat, true);
+    if (period != GRIB_NOTDEF) {
+      m_cachedWaveValue.periodValid = true;
+      m_cachedWaveValue.period = period;
+      m_cachedWaveValue.periodStr = wxString::Format(_T("%01ds"), (int)round(period));
+    }
+  }
+
+  return m_cachedWaveValue;
+}
 const GribLayerValue& GRIBUICtrlBar::GetFormattedVectorValueAtPoint(int idx1, int idx2,
                                                                    double lon,
                                                                    double lat,
@@ -1773,6 +1810,35 @@ const GribLayerValue& GRIBUICtrlBar::GetFormattedLayerValueAtPoint(int layerId,
         m_cachedLayerValue.value = value;
         m_cachedLayerValue.valueString = wxString::Format(_T("%.1f %s"), value, unit);
         m_cachedLayerValue.formatted = m_cachedLayerValue.valueString;
+      }
+      break;
+    }
+    case GribOverlaySettings::PRECIPITATION: {
+      value = getTimeInterpolatedValue(Idx_PRECIP_TOT, lon, lat, time);
+      if (value != GRIB_NOTDEF) {
+        value = m_OverlaySettings.CalibrateValue(GribOverlaySettings::PRECIPITATION,
+                                                  value);
+        wxString unit =
+            m_OverlaySettings.GetUnitSymbol(GribOverlaySettings::PRECIPITATION);
+        m_cachedLayerValue.valid = true;
+        m_cachedLayerValue.value = value;
+        m_cachedLayerValue.valueString = wxString::Format(_T("%.1f %s"), value, unit);
+        m_cachedLayerValue.formatted = m_cachedLayerValue.valueString;
+      }
+      break;
+    }
+    case GribOverlaySettings::WAVE: {
+      // Get wave data using the specialized helper
+      const auto& waveVal = GetFormattedWaveValueAtPoint(lon, lat, 0);
+      if (waveVal.valid) {
+        m_cachedLayerValue.valid = true;
+        m_cachedLayerValue.value = waveVal.height;
+        m_cachedLayerValue.valueString = waveVal.heightStr;
+        // Format combined string with period if available
+        if (waveVal.periodValid)
+          m_cachedLayerValue.formatted = waveVal.heightStr + _T(" - ") + waveVal.periodStr;
+        else
+          m_cachedLayerValue.formatted = waveVal.heightStr;
       }
       break;
     }
