@@ -163,6 +163,9 @@ public:
 
   GRIBOverlayFactory *m_pGRIBOverlayFactory;
   GRIBOverlayFactory *GetGRIBOverlayFactory() { return m_pGRIBOverlayFactory; }
+  
+  // API access for UI components
+  DpGrib::DpGribAPI* GetGribAPI() { return m_gribAPI; }
 
   void UpdatePrefs(GribPreferencesDialog *Pref);
 

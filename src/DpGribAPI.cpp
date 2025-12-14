@@ -28,6 +28,7 @@ DpGribAPI::DpGribAPI(DpGribPersistentSettings* settings, void* plugin)
 DpGribAPI::~DpGribAPI() {
     // Clear all callbacks on destruction
     m_stateCallbacks.clear();
+    m_dataChangedCallbacks.clear();
     m_progressCallbacks.clear();
     m_cursorCallbacks.clear();
 }
@@ -97,6 +98,27 @@ void DpGribAPI::NotifyStateChanged() {
     // Call all registered callbacks
     // Make a copy of the callback map in case a callback modifies it
     auto callbacks = m_stateCallbacks;
+    for (auto& [id, callback] : callbacks) {
+        if (callback) {
+            callback();
+        }
+    }
+}
+
+uint64_t DpGribAPI::AddDataChangedCallback(std::function<void()> callback) {
+    uint64_t id = m_nextCallbackId++;
+    m_dataChangedCallbacks[id] = std::move(callback);
+    return id;
+}
+
+void DpGribAPI::RemoveDataChangedCallback(uint64_t callbackId) {
+    m_dataChangedCallbacks.erase(callbackId);
+}
+
+void DpGribAPI::NotifyDataChanged() {
+    // Call all registered data changed callbacks
+    // Make a copy of the callback map in case a callback modifies it
+    auto callbacks = m_dataChangedCallbacks;
     for (auto& [id, callback] : callbacks) {
         if (callback) {
             callback();

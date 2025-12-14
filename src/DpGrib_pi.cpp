@@ -1016,17 +1016,24 @@ int DpGrib_pi::Internal_GetCurrentTimeIndex() const {
 
 bool DpGrib_pi::Internal_SetTimeIndex(int index) {
   if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    wxLogWarning("DpGrib_pi::Internal_SetTimeIndex(%d) - No GRIB file loaded", index);
     return false;
   }
   
   ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
-  if (!rsa) return false;
-  
-  int count = rsa->GetCount();
-  if (index < 0 || index >= count) {
+  if (!rsa) {
+    wxLogWarning("DpGrib_pi::Internal_SetTimeIndex(%d) - No record sets available", index);
     return false;
   }
   
+  int count = rsa->GetCount();
+  if (index < 0 || index >= count) {
+    wxLogWarning("DpGrib_pi::Internal_SetTimeIndex(%d) - Index out of range [0-%d]", 
+                 index, count - 1);
+    return false;
+  }
+  
+  wxLogMessage("DpGrib_pi::Internal_SetTimeIndex(%d/%d) - Setting timeline", index, count - 1);
   m_pGribCtrlBar->m_cRecordForecast->SetSelection(index);
   m_pGribCtrlBar->TimelineChanged();
   RequestRefresh(m_parent_window);

@@ -515,6 +515,13 @@ void GRIBUICtrlBar::OpenFile(bool newestFile) {
   else
     TimelineChanged();
 
+  // Notify API that GRIB data has changed (for UI slider range updates)
+  if (m_bGRIBActiveFile && m_bGRIBActiveFile->IsOK() && pPlugIn->GetGribAPI()) {
+    pPlugIn->GetGribAPI()->NotifyDataChanged();
+    wxLogMessage("GRIBUICtrlBar::OpenFile - Notified data changed, timesteps: %d", 
+                 rsa ? rsa->GetCount() : 0);
+  }
+
   // populate  altitude choice and show if necessary
   if (m_pTimelineSet && m_bGRIBActiveFile)
     for (int i = 1; i < 5; i++) {
