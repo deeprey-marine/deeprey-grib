@@ -1040,6 +1040,14 @@ bool DpGrib_pi::Internal_SetTimeIndex(int index) {
   return true;
 }
 
+bool DpGrib_pi::Internal_SetDisplayToCurrentTime() {
+  // Call the plugin's existing "now" logic
+  // This finds nearest forecast and updates the control bar and display
+  m_pGribCtrlBar->ComputeBestForecastForNow();
+  
+  return true;
+}
+
 wxString DpGrib_pi::Internal_GetCurrentTimeString() const {
   if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
     return wxEmptyString;

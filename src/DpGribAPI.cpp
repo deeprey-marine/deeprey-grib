@@ -188,6 +188,13 @@ bool DpGribAPI::SetTimeIndex(int index) {
     return false;
 }
 
+bool DpGribAPI::SetDisplayToCurrentTime() {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_SetDisplayToCurrentTime();
+    }
+    return false;
+}
+
 wxString DpGribAPI::GetCurrentTimeString() const {
     if (m_plugin) {
         return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetCurrentTimeString();

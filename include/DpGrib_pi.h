@@ -182,6 +182,7 @@ public:
   int Internal_GetTimeStepCount() const;
   int Internal_GetCurrentTimeIndex() const;
   bool Internal_SetTimeIndex(int index);
+  bool Internal_SetDisplayToCurrentTime();
   wxString Internal_GetCurrentTimeString() const;
   wxString Internal_GetTimeString(int index) const;
   
