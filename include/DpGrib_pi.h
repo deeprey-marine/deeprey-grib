@@ -185,6 +185,8 @@ public:
   bool Internal_SetDisplayToCurrentTime();
   wxString Internal_GetCurrentTimeString() const;
   wxString Internal_GetTimeString(int index) const;
+  wxString Internal_GetCurrentTimeStringLocal() const;
+  wxString Internal_GetTimeStringLocal(int index) const;
   
   // Layer management
   bool Internal_SetLayerVisible(int layerId, bool visible);

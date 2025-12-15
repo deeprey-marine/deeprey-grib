@@ -209,6 +209,20 @@ wxString DpGribAPI::GetTimeString(int index) const {
     return wxEmptyString;
 }
 
+wxString DpGribAPI::GetCurrentTimeStringLocal() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetCurrentTimeStringLocal();
+    }
+    return wxEmptyString;
+}
+
+wxString DpGribAPI::GetTimeStringLocal(int index) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetTimeStringLocal(index);
+    }
+    return wxEmptyString;
+}
+
 // =============================================================================
 // Layer / Data Field Management
 // =============================================================================

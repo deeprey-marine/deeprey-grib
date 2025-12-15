@@ -1079,7 +1079,64 @@ wxString DpGrib_pi::Internal_GetTimeString(int index) const {
   }
   
   wxDateTime time = rsa->Item(index).m_Reference_Time;
-  return time.Format(_T("%Y-%m-%d %H:%M UTC"));
+  
+  return toUsrDateTimeFormat_Plugin(time);
+}
+
+wxString DpGrib_pi::Internal_GetCurrentTimeStringLocal() const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return wxEmptyString;
+  }
+  
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return wxEmptyString;
+  
+  int index = m_pGribCtrlBar->m_cRecordForecast->GetCurrentSelection();
+  if (index < 0 || index >= (int)rsa->GetCount()) {
+    return wxEmptyString;
+  }
+  
+  // GRIB Reference_Time is in UTC (stored as time_t)
+  // We need to convert it to local time before passing to toUsrDateTimeFormat_Plugin
+  wxDateTime timeUTC;
+  timeUTC.Set(rsa->Item(index).m_Reference_Time);  // time_t is UTC
+  wxDateTime timeLocal = timeUTC.FromTimezone(wxDateTime::Local);
+  
+  // Configure formatting options for local time
+  DateTimeFormatOptions options;
+  options.SetFormatString("$weekday_short_date_time");  // "Wed 12/15/2021 10:00:00"
+  options.SetTimezone("Local Time");  // Use system local time
+  options.SetShowTimezone(true);  // Include timezone abbreviation (e.g., "EST")
+  
+  return toUsrDateTimeFormat_Plugin(timeLocal, options);
+}
+
+wxString DpGrib_pi::Internal_GetTimeStringLocal(int index) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return wxEmptyString;
+  }
+  
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return wxEmptyString;
+  
+  int count = rsa->GetCount();
+  if (index < 0 || index >= count) {
+    return wxEmptyString;
+  }
+  
+  // GRIB Reference_Time is in UTC (stored as time_t)
+  // We need to convert it to local time before passing to toUsrDateTimeFormat_Plugin
+  wxDateTime timeUTC;
+  timeUTC.Set(rsa->Item(index).m_Reference_Time);  // time_t is UTC
+  wxDateTime timeLocal = timeUTC.FromTimezone(wxDateTime::Local);
+  
+  // Configure formatting options for local time
+  DateTimeFormatOptions options;
+  options.SetFormatString("$weekday_short_date_time");  // "Wed 12/15/2021 10:00:00"
+  options.SetTimezone("Local Time");  // Use system local time
+  options.SetShowTimezone(true);  // Include timezone abbreviation (e.g., "EST")
+  
+  return toUsrDateTimeFormat_Plugin(timeLocal, options);
 }
 
 //----------------------------------------------------------------------------------------------------------
