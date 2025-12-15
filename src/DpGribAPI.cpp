@@ -80,6 +80,19 @@ bool DpGribAPI::IsVisible() const {
     return false;
 }
 
+void DpGribAPI::SetOverlayTransparency(int transparency) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetOverlayTransparency(transparency);
+    }
+}
+
+int DpGribAPI::GetOverlayTransparency() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetOverlayTransparency();
+    }
+    return 50; // Default to 50% opaque
+}
+
 // =============================================================================
 // Callback Management
 // =============================================================================

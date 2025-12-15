@@ -1139,6 +1139,34 @@ wxString DpGrib_pi::Internal_GetTimeStringLocal(int index) const {
   return toUsrDateTimeFormat_Plugin(timeLocal, options);
 }
 
+void DpGrib_pi::Internal_SetOverlayTransparency(int transparency) {
+  if (!m_pGribCtrlBar) return;
+  
+  // Clamp to 0-100 range
+  if (transparency < 0) transparency = 0;
+  if (transparency > 100) transparency = 100;
+  
+  // Convert from percentage (0-100) to internal alpha (0-254)
+  // 0% = fully transparent (alpha 0)
+  // 100% = fully opaque (alpha 254)
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.m_iOverlayTransparency = (int)(transparency * 254.0 / 100.0);
+  
+  // Save to config
+  settings.Write();
+  
+  // Apply changes immediately
+  m_pGribCtrlBar->SetFactoryOptions();
+  RequestRefresh(GetOCPNCanvasWindow());
+}
+
+int DpGrib_pi::Internal_GetOverlayTransparency() const {
+  if (!m_pGribCtrlBar) return 50; // Default 50%
+  
+  // Convert from internal alpha (0-254) to percentage (0-100)
+  int alpha = m_pGribCtrlBar->m_OverlaySettings.m_iOverlayTransparency;
+  return (int)(alpha * 100.0 / 254.0);
+}
 //----------------------------------------------------------------------------------------------------------
 //          Layer Management Implementation
 //----------------------------------------------------------------------------------------------------------

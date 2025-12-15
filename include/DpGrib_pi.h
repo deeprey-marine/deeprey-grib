@@ -172,6 +172,8 @@ public:
   // Internal methods for API access
   void Internal_SetVisible(bool visible);
   bool Internal_IsVisible() const;
+  void Internal_SetOverlayTransparency(int transparency);
+  int Internal_GetOverlayTransparency() const;
   void Internal_StartWorldDownload(double latMin, double lonMin, double latMax,
                                    double lonMax, int durationHours);
   bool Internal_IsDownloading() const;
