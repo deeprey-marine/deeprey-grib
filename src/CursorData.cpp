@@ -429,27 +429,35 @@ void CursorData::UpdateTrackingControls(void) {
   }
 
   //    Update the Sig Wave Height
-  const auto& waveVal = m_gparent.GetFormattedWaveValueAtPoint(
-      m_cursor_lon, m_cursor_lat, m_DialogStyle);
-  
-  if (waveVal.valid) {
-    wxString waveDisplay = waveVal.heightStr;
-    
-    if (waveVal.periodValid) {
-      if (m_DialogStyle == SEPARATED_VERTICAL)
-        m_tcWavePeriode->SetValue(waveVal.periodStr);
-      else
-        waveDisplay.Append(_T(" - ")).Append(waveVal.periodStr);
-    } else {
-      m_tcWavePeriode->SetValue(_("N/A"));
-    }
-    
-    m_tcWaveHeight->SetValue(waveDisplay);
-  } else {
-    m_tcWaveHeight->SetValue(_("N/A"));
-    m_tcWavePeriode->SetValue(_("N/A"));
-  }
+  if (RecordArray[Idx_HTSIGW]) {
+    double height = RecordArray[Idx_HTSIGW]->getInterpolatedValue(
+        m_cursor_lon, m_cursor_lat, true);
 
+    if (height != GRIB_NOTDEF) {
+      height = m_gparent.m_OverlaySettings.CalibrateValue(
+          GribOverlaySettings::WAVE, height);
+      wxString w(wxString::Format(
+          _T("%4.1f ") + m_gparent.m_OverlaySettings.GetUnitSymbol(
+                             GribOverlaySettings::WAVE),
+          height));
+      if (RecordArray[Idx_WVPER]) {
+        double period = RecordArray[Idx_WVPER]->getInterpolatedValue(
+            m_cursor_lon, m_cursor_lat, true);
+        if (period != GRIB_NOTDEF) {
+          if (m_DialogStyle == SEPARATED_VERTICAL)
+            m_tcWavePeriode->SetValue(
+                wxString::Format(_T("%01ds"), (int)round(period)));
+          else
+            w.Append(wxString::Format(_T(" - %01ds"), (int)round(period)));
+        } else
+          m_tcWavePeriode->SetValue(_("N/A"));
+      } else
+        m_tcWavePeriode->SetValue(_("N/A"));
+
+      m_tcWaveHeight->SetValue(w);
+    } else
+      m_tcWaveHeight->SetValue(_("N/A"));
+  }
   // Update the Wave direction
   if (RecordArray[Idx_WVDIR]) {
     double direction = RecordArray[Idx_WVDIR]->getInterpolatedValue(

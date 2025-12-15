@@ -173,45 +173,10 @@ public:
 };
 
 //----------------------------------------------------------------------------------------------------------
-//    GRIB Layer Value Structure
+//    GRIB Layer Value Helper
 //----------------------------------------------------------------------------------------------------------
-/**
- * Structure to represent a formatted GRIB data value at a point.
- * Supports both scalar and vector (magnitude + angle) fields.
- * 
- * Can be used in two ways:
- * 1. Simple: Use `formatted` string directly for display
- * 2. Flexible: Access separate `value` and `angle` fields for custom formatting
- */
-struct GribLayerValue {
-  bool valid;              //!< True if data was available and interpolated
-  wxString formatted;      //!< Complete formatted string (e.g., "10.5 kts @ 045°")
-  double value;            //!< Magnitude value (e.g., wind speed in m/s before unit conversion)
-  wxString valueString;    //!< Formatted magnitude (e.g., "10.5 kts")
-  double angle;            //!< Direction/angle for vector fields (degrees)
-  wxString angleString;    //!< Formatted angle (e.g., "045°")
-  
-  GribLayerValue() : valid(false), value(0.0), angle(0.0) {}
-};
-
-/**
- * Structure to represent formatted GRIB wave data (height + period) at a point.
- * Handles coupled wave data where height and period are logically related.
- * 
- * Supports both display modes:
- * 1. SEPARATED_VERTICAL: height and period in separate fields
- * 2. Inline: height and period combined as "height - period"
- */
-struct GribWaveValue {
-  bool valid;              //!< True if wave height was available
-  wxString heightStr;      //!< Formatted wave height (e.g., "1.5 m")
-  double height;           //!< Raw height value (after calibration)
-  bool periodValid;        //!< True if wave period was available
-  wxString periodStr;      //!< Formatted wave period (e.g., "08s")
-  double period;           //!< Raw period value
-  
-  GribWaveValue() : valid(false), height(0.0), periodValid(false), period(0.0) {}
-};
+// Helper functions return formatted strings directly
+// Return "--" when data is unavailable
 
 //----------------------------------------------------------------------------------------------------------
 //    GRIB CtrlBar Specification
@@ -300,51 +265,14 @@ public:
                                  double lon, double lat, wxDateTime t);
   
   /**
-   * Get formatted GRIB vector field value (magnitude + angle) at a point.
-   * Used for wind, currents, and other vector fields.
-   * 
-   * Returns a const reference to a cached result. The reference remains valid
-   * until the next call to any GetFormatted* method.
-   * 
-   * @param idx1 Index for first component (e.g., Idx_WIND_VX)
-   * @param idx2 Index for second component (e.g., Idx_WIND_VY)
-   * @param lon Longitude in degrees
-   * @param lat Latitude in degrees
-   * @param unitType Layer type for unit lookup (e.g., GribOverlaySettings::WIND)
-   * @return const reference to cached GribLayerValue with formatted magnitude and angle
-   */
-  const GribLayerValue& GetFormattedVectorValueAtPoint(int idx1, int idx2, double lon,
-                                                       double lat, int unitType);
-  
-  /**
    * Get formatted GRIB value at a point for a given layer.
-   * 
-   * Returns a const reference to a cached result. The reference remains valid
-   * until the next call to any GetFormatted* method.
    * 
    * @param layerId The GRIB layer ID (e.g., GribOverlaySettings::WIND)
    * @param lon Longitude in degrees
    * @param lat Latitude in degrees
-   * @return const reference to cached GribLayerValue with formatted string; use .formatted for simple display
+   * @return Formatted string with value and unit, or "--" if unavailable
    */
-  const GribLayerValue& GetFormattedLayerValueAtPoint(int layerId, double lon, double lat);
-  
-  /**
-   * Get formatted GRIB wave data (height + period) at a point.
-   * 
-   * Handles coupled wave data with support for both display modes:
-   * - SEPARATED_VERTICAL: height and period in separate fields
-   * - Inline: height and period combined as "height - period"
-   * 
-   * Returns a const reference to a cached result. The reference remains valid
-   * until the next call to any GetFormatted* method.
-   * 
-   * @param lon Longitude in degrees
-   * @param lat Latitude in degrees
-   * @param dialogStyle Display mode (SEPARATED_VERTICAL or inline)
-   * @return const reference to cached GribWaveValue with formatted height and period
-   */
-  const GribWaveValue& GetFormattedWaveValueAtPoint(double lon, double lat, int dialogStyle);
+  wxString GetFormattedLayerValueAtPoint(int layerId, double lon, double lat);
 
   wxWindow *pParent;
   /** Settings that control how GRIB data is displayed and overlaid. */
@@ -494,10 +422,6 @@ private:
   wxString m_sLastTimeFormat;  // Used to detect time format changes
 
   void OnFormatRefreshTimer(wxTimerEvent &event);
-  
-  // Cache for formatted GRIB values to avoid struct copies
-  mutable GribLayerValue m_cachedLayerValue;
-  mutable GribWaveValue m_cachedWaveValue;
 };
 
 /**

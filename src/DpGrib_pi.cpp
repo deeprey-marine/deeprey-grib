@@ -1168,9 +1168,7 @@ wxString DpGrib_pi::Internal_GetLayerValueAtPoint(int layerId, double latitude, 
   }
   
   // Use the control bar's helper method for consistent formatting
-  // Returns const reference - no copy overhead
-  const GribLayerValue& result = m_pGribCtrlBar->GetFormattedLayerValueAtPoint(layerId, longitude, latitude);
-  return result.formatted;
+  return m_pGribCtrlBar->GetFormattedLayerValueAtPoint(layerId, longitude, latitude);
 }
 
 //----------------------------------------------------------------------------------------------------------
