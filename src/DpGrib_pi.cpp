@@ -1079,8 +1079,11 @@ wxString DpGrib_pi::Internal_GetTimeString(int index) const {
   }
   
   wxDateTime time = rsa->Item(index).m_Reference_Time;
-  
-  return toUsrDateTimeFormat_Plugin(time);
+  DateTimeFormatOptions options;
+  options.SetFormatString("$weekday_short_date $hour_minutes");  // "Wed 12/15/2021 10:00"
+  options.SetTimezone("UTC");  // Use UTC
+
+  return toUsrDateTimeFormat_Plugin(time, options);
 }
 
 wxString DpGrib_pi::Internal_GetCurrentTimeStringLocal() const {
@@ -1104,10 +1107,10 @@ wxString DpGrib_pi::Internal_GetCurrentTimeStringLocal() const {
   
   // Configure formatting options for local time
   DateTimeFormatOptions options;
-  options.SetFormatString("$weekday_short_date_time");  // "Wed 12/15/2021 10:00:00"
+  options.SetFormatString("$weekday_short_date $hour_minutes");  // "Wed 12/15/2021 10:00"
   options.SetTimezone("Local Time");  // Use system local time
   options.SetShowTimezone(true);  // Include timezone abbreviation (e.g., "EST")
-  
+
   return toUsrDateTimeFormat_Plugin(timeLocal, options);
 }
 
@@ -1132,10 +1135,10 @@ wxString DpGrib_pi::Internal_GetTimeStringLocal(int index) const {
   
   // Configure formatting options for local time
   DateTimeFormatOptions options;
-  options.SetFormatString("$weekday_short_date_time");  // "Wed 12/15/2021 10:00:00"
+  options.SetFormatString("$weekday_short_date $hour_minutes");  // "Wed 12/15/2021 10:00"
   options.SetTimezone("Local Time");  // Use system local time
   options.SetShowTimezone(true);  // Include timezone abbreviation (e.g., "EST")
-  
+
   return toUsrDateTimeFormat_Plugin(timeLocal, options);
 }
 
