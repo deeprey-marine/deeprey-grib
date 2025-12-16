@@ -196,6 +196,14 @@ public:
   bool Internal_IsLayerAvailable(int layerId) const;
   wxString Internal_GetLayerValueAtPoint(int layerId, double latitude, double longitude) const;
 
+  // Unit management API
+  void Internal_SetWindSpeedUnit(int unitIndex);
+  void Internal_SetDepthUnit(int unitIndex);
+  void Internal_SetTemperatureUnit(int unitIndex);
+  int Internal_GetWindSpeedUnit() const;
+  int Internal_GetDepthUnit() const;
+  int Internal_GetTemperatureUnit() const;
+
   int m_MenuItem;
   bool m_DialogStyleChanged;
 

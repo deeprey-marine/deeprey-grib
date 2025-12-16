@@ -75,6 +75,23 @@ struct GribOverlaySettings {
   wxString GetUnitSymbol(int settings);
   double GetMin(int settings);
   double GetMax(int settings);
+
+  // DeepRey unit category enum for external API integration
+  enum DeepReyUnitCategory {
+    DR_WIND_SPEED = 0,
+    DR_DEPTH = 1,
+    DR_TEMPERATURE = 2
+  };
+
+  // Update units for a specific category (called by plugin API)
+  void UpdateGlobalUnits(int category, int deepReyIndex);
+
+private:
+  // Helper methods for DeepRey unit conversion
+  int MapDeepReyToGribUnit(int category, int deepReyIndex);
+  void ApplyUnitToParameters(int category, int gribUnit);
+
+public:
   // playback options
   bool m_bInterpolate;
   bool m_bLoopMode;

@@ -644,6 +644,83 @@ double GribOverlaySettings::GetMax(int settings) {
   return CalibrateValue(settings, max);
 }
 
+int GribOverlaySettings::MapDeepReyToGribUnit(int category, int deepReyIndex) {
+  switch (category) {
+    case DR_WIND_SPEED:
+      // DeepRey: [0=Knots, 1=Mph, 2=Km/h, 3=m/s]
+      // GRIB Units0: [0=KNOTS, 1=M_S, 2=MPH, 3=KPH, 4=BFS]
+      switch (deepReyIndex) {
+        case 0: return KNOTS;  // 0 → 0
+        case 1: return MPH;    // 1 → 2
+        case 2: return KPH;    // 2 → 3
+        case 3: return M_S;    // 3 → 1
+        default: return KNOTS; // Invalid → default
+      }
+
+    case DR_DEPTH:
+      // DeepRey: [0=Feet, 1=Meters, 2=Fathoms]
+      // GRIB Units2: [0=METERS, 1=FEET]
+      switch (deepReyIndex) {
+        case 0: return FEET;    // 0 → 1
+        case 1: return METERS;  // 1 → 0
+        case 2: return FEET;    // 2 → 1 (Fathoms fallback to Feet)
+        default: return METERS;
+      }
+
+    case DR_TEMPERATURE:
+      // DeepRey: [0=Celsius, 1=Fahrenheit, 2=Kelvin]
+      // GRIB Units3: [0=CELCIUS, 1=FAHRENHEIT]
+      switch (deepReyIndex) {
+        case 0: return CELCIUS;     // 0 → 0
+        case 1: return FAHRENHEIT;  // 1 → 1
+        case 2: return CELCIUS;     // 2 → 0 (Kelvin fallback to Celsius)
+        default: return CELCIUS;
+      }
+
+    default:
+      return 0; // Invalid category
+  }
+}
+
+void GribOverlaySettings::ApplyUnitToParameters(int category, int gribUnit) {
+  switch (category) {
+    case DR_WIND_SPEED:
+      // Apply to wind and current parameters
+      Settings[WIND].m_Units = gribUnit;
+      Settings[WIND_GUST].m_Units = gribUnit;
+      Settings[CURRENT].m_Units = gribUnit;
+      break;
+
+    case DR_DEPTH:
+      // Apply to wave and altitude parameters
+      Settings[WAVE].m_Units = gribUnit;
+      Settings[GEO_ALTITUDE].m_Units = gribUnit;
+      break;
+
+    case DR_TEMPERATURE:
+      // Apply to temperature parameters
+      Settings[AIR_TEMPERATURE].m_Units = gribUnit;
+      Settings[SEA_TEMPERATURE].m_Units = gribUnit;
+      break;
+  }
+}
+
+void GribOverlaySettings::UpdateGlobalUnits(int category, int deepReyIndex) {
+  // Validate category
+  if (category < DR_WIND_SPEED || category > DR_TEMPERATURE) {
+    return; // Invalid category
+  }
+
+  // Map DeepRey index to GRIB unit enum
+  int gribUnit = MapDeepReyToGribUnit(category, deepReyIndex);
+
+  // Apply to all relevant parameters
+  ApplyUnitToParameters(category, gribUnit);
+
+  // Persist to config file immediately
+  Write();
+}
+
 GribSettingsDialog::GribSettingsDialog(GRIBUICtrlBar &parent,
                                        GribOverlaySettings &Settings,
                                        int &lastdatatype, int fileIntervalIndex)

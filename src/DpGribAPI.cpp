@@ -93,6 +93,45 @@ int DpGribAPI::GetOverlayTransparency() const {
     return 50; // Default to 50% opaque
 }
 
+void DpGribAPI::SetWindSpeedUnit(int unitIndex) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetWindSpeedUnit(unitIndex);
+    }
+}
+
+void DpGribAPI::SetDepthUnit(int unitIndex) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetDepthUnit(unitIndex);
+    }
+}
+
+void DpGribAPI::SetTemperatureUnit(int unitIndex) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetTemperatureUnit(unitIndex);
+    }
+}
+
+int DpGribAPI::GetWindSpeedUnit() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetWindSpeedUnit();
+    }
+    return 0; // Default: Knots
+}
+
+int DpGribAPI::GetDepthUnit() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetDepthUnit();
+    }
+    return 1; // Default: Meters
+}
+
+int DpGribAPI::GetTemperatureUnit() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetTemperatureUnit();
+    }
+    return 0; // Default: Celsius
+}
+
 // =============================================================================
 // Callback Management
 // =============================================================================
