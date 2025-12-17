@@ -36,6 +36,7 @@
 #include <wx/stdpaths.h>
 
 #include "DpGrib_pi.h"
+#include "DpUnitManager.h"
 
 #ifdef __WXQT__
 #include "qdebug.h"
@@ -117,6 +118,9 @@ int DpGrib_pi::Init(void) {
 
   //    And load the configuration items
   LoadConfig();
+
+  // Initialize the unit manager with OpenCPN config
+  DpUnitManager::Instance().Init(m_pconfig);
 
   // Get a pointer to the opencpn display canvas, to use as a parent for the
   // GRIB dialog
@@ -492,6 +496,9 @@ void DpGrib_pi::OnToolbarToolCallback(int id) {
                                        m_bDrawBarbedArrowHead);
 
     m_pGribCtrlBar->OpenFile(m_bLoadLastOpenFile == 0);
+
+    // Sync units with OpenCPN settings on first open
+    SyncUnitsToGribSettings();
   }
 
   // Toggle GRIB overlay display
@@ -688,11 +695,11 @@ void DpGrib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
     return;
   }
 
-  // Handle global settings update (optional)
-  // deeprey-gui may broadcast theme changes or other global settings
+  // Handle global settings update
+  // OpenCPN broadcasts this when user changes Settings → Display → Units
   if (message_id == _T("GLOBAL_SETTINGS_UPDATED")) {
-    // React to global settings change if needed
-    // For example: update colors for night mode
+    DpUnitManager::Instance().LoadSettings();
+    SyncUnitsToGribSettings();
     return;
   }
 
@@ -1276,4 +1283,62 @@ void GribPreferencesDialog::OnStartOptionChange(wxCommandEvent &event) {
 void GribPreferencesDialog::OnOKClick(wxCommandEvent &event) {
   if (g_pi) g_pi->UpdatePrefs(this);
   Close();
+}
+
+//----------------------------------------------------------------------------------------------------------
+//          Unit Synchronization Implementation
+//----------------------------------------------------------------------------------------------------------
+
+// Map OpenCPN SpeedFormat to Grib Units0/Units7
+// OpenCPN: 0=kn, 1=km/h, 2=mph
+// Grib Units0: KNOTS=0, M_S=1, MPH=2, KPH=3, BFS=4
+// Grib Units7: KNOTS=0, M_S=1, MPH=2, KPH=3
+static int MapOcpnSpeedToGrib(int ocpnUnit) {
+  switch (ocpnUnit) {
+    case 0: return GribOverlaySettings::KNOTS;  // 0
+    case 1: return GribOverlaySettings::KPH;    // 3
+    case 2: return GribOverlaySettings::MPH;    // 2
+    default: return GribOverlaySettings::KNOTS;
+  }
+}
+
+// Map OpenCPN S52_DEPTH_UNIT to Grib Units2
+// OpenCPN: 0=ft, 1=m, 2=fa
+// Grib Units2: METERS=0, FEET=1
+static int MapOcpnDepthToGrib(int ocpnUnit) {
+  switch (ocpnUnit) {
+    case 0: return GribOverlaySettings::FEET;   // 1
+    case 1: return GribOverlaySettings::METERS; // 0
+    case 2: return GribOverlaySettings::METERS; // fallback for fathoms
+    default: return GribOverlaySettings::METERS;
+  }
+}
+
+void DpGrib_pi::SyncUnitsToGribSettings() {
+  auto& um = DpUnitManager::Instance();
+  if (!um.IsInitialized()) return;
+  if (!m_pGribCtrlBar) return;
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+
+  // Map OpenCPN wind speed to Grib speed enum
+  int gribSpeed = MapOcpnSpeedToGrib(um.GetWindSpeedUnit());
+  settings.Settings[GribOverlaySettings::WIND].m_Units = gribSpeed;
+  settings.Settings[GribOverlaySettings::WIND_GUST].m_Units = gribSpeed;
+
+  // Map OpenCPN speed to Grib current enum (uses same mapping)
+  int gribCurrent = MapOcpnSpeedToGrib(um.GetSpeedUnit());
+  settings.Settings[GribOverlaySettings::CURRENT].m_Units = gribCurrent;
+
+  // Temperature: OpenCPN matches Grib (0=Celsius, 1=Fahrenheit)
+  settings.Settings[GribOverlaySettings::AIR_TEMPERATURE].m_Units = um.GetTemperatureUnit();
+  settings.Settings[GribOverlaySettings::SEA_TEMPERATURE].m_Units = um.GetTemperatureUnit();
+
+  // Wave height uses depth unit
+  settings.Settings[GribOverlaySettings::WAVE].m_Units = MapOcpnDepthToGrib(um.GetDepthUnit());
+
+  // DO NOT sync: PRESSURE, PRECIPITATION, CAPE, COMP_REFL, CLOUD, GEO_ALTITUDE, REL_HUMIDITY
+  // These have grib-specific options that OpenCPN doesn't provide
+
+  RequestRefresh(m_parent_window);
 }

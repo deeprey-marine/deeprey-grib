@@ -211,6 +211,7 @@ private:
   bool LoadConfig(void);
   bool SaveConfig(void);
   void UpdateApiPtr(void);
+  void SyncUnitsToGribSettings(void);
 
   bool DoRenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                          int canvasIndex);

@@ -51,10 +51,12 @@ set(PKG_INFO_URL https://opencpn.org/OpenCPN/plugins/)
 # API files (shared interface for deeprey-gui)
 set(API_SOURCES
     src/DpGribAPI.cpp
+    deeprey-api/units/DpUnitManager.cpp
 )
 set(API_HEADERS
     deeprey-api/grib/DpGribAPI.h
     deeprey-api/grib/DpGribPersistentSettings.h
+    deeprey-api/units/DpUnitManager.h
 )
 
 # Core plugin files
