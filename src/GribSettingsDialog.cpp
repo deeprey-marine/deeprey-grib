@@ -29,8 +29,8 @@ static const wxString units0_names[] = {
     _("Knots"), _("m/s"), _("mph"), _("km/h"), _("Beaufort"), wxEmptyString};
 static const wxString units1_names[] = {_("MilliBars"), _("mmHG"), _("inHG"),
                                         wxEmptyString};
-static const wxString units2_names[] = {_("Meters"), _("Feet"), wxEmptyString};
-static const wxString units3_names[] = {_("Celsius"), _("Fahrenheit"),
+static const wxString units2_names[] = {_("Meters"), _("Feet"), _("Fathoms"), wxEmptyString};
+static const wxString units3_names[] = {_("Celsius"), _("Fahrenheit"), _("Kelvin"),
                                         wxEmptyString};
 static const wxString units4_names[] = {_("Millimeters"), _("Inches"),
                                         wxEmptyString};
@@ -368,6 +368,8 @@ double GribOverlaySettings::CalibrationOffset(int settings) {
           return -273.15;
         case FAHRENHEIT:
           return -273.15 + 32 * 5 / 9.0;
+        case KELVIN:
+          return 0;
       }
       break;
   }
@@ -409,6 +411,8 @@ double GribOverlaySettings::CalibrationFactor(int settings, double input,
           return 1;
         case FEET:
           return 3.28;
+        case FATHOMS:
+          return 0.546807;
       }
       break;
     case 3:
@@ -417,6 +421,8 @@ double GribOverlaySettings::CalibrationFactor(int settings, double input,
           return 1;
         case FAHRENHEIT:
           return 9. / 5;
+        case KELVIN:
+          return 1;
       }
       break;
     case 4:
@@ -536,6 +542,8 @@ wxString GribOverlaySettings::GetUnitSymbol(int settings) {
           return _T("m");
         case FEET:
           return _T("ft");
+        case FATHOMS:
+          return _T("ftm");
       }
       break;
     case 3:
@@ -544,6 +552,8 @@ wxString GribOverlaySettings::GetUnitSymbol(int settings) {
           return _T("\u00B0C");
         case FAHRENHEIT:
           return _T("\u00B0F");
+        case KELVIN:
+          return _T("K");
       }
       break;
     case 4:
