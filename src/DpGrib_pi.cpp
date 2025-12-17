@@ -1289,29 +1289,58 @@ void GribPreferencesDialog::OnOKClick(wxCommandEvent &event) {
 //          Unit Synchronization Implementation
 //----------------------------------------------------------------------------------------------------------
 
-// Map OpenCPN SpeedFormat to Grib Units0/Units7
-// OpenCPN: 0=kn, 1=km/h, 2=mph
+// Map DeepRey GUI SpeedFormat to Grib Units0/Units7
+// DeepRey GUI: 0=Knots, 1=Mph, 2=Km/h, 3=m/s
 // Grib Units0: KNOTS=0, M_S=1, MPH=2, KPH=3, BFS=4
 // Grib Units7: KNOTS=0, M_S=1, MPH=2, KPH=3
 static int MapOcpnSpeedToGrib(int ocpnUnit) {
   switch (ocpnUnit) {
     case 0: return GribOverlaySettings::KNOTS;  // 0
-    case 1: return GribOverlaySettings::KPH;    // 3
-    case 2: return GribOverlaySettings::MPH;    // 2
+    case 1: return GribOverlaySettings::MPH;    // 2
+    case 2: return GribOverlaySettings::KPH;    // 3
+    case 3: return GribOverlaySettings::M_S;    // 1
     default: return GribOverlaySettings::KNOTS;
   }
 }
 
 // Map OpenCPN S52_DEPTH_UNIT to Grib Units2
 // OpenCPN: 0=ft, 1=m, 2=fa
-// Grib Units2: METERS=0, FEET=1
+// Grib Units2: METERS=0, FEET=1, FATHOMS=2
 static int MapOcpnDepthToGrib(int ocpnUnit) {
   switch (ocpnUnit) {
-    case 0: return GribOverlaySettings::FEET;   // 1
-    case 1: return GribOverlaySettings::METERS; // 0
-    case 2: return GribOverlaySettings::METERS; // fallback for fathoms
+    case 0: return GribOverlaySettings::FEET;    // 1
+    case 1: return GribOverlaySettings::METERS;  // 0
+    case 2: return GribOverlaySettings::FATHOMS; // 2
     default: return GribOverlaySettings::METERS;
   }
+}
+
+// Map OpenCPN TemperatureFormat to Grib Units3
+// OpenCPN: 0=Celsius, 1=Fahrenheit, 2=Kelvin
+// Grib Units3: CELCIUS=0, FAHRENHEIT=1, KELVIN=2
+static int MapOcpnTempToGrib(int ocpnUnit) {
+  switch (ocpnUnit) {
+    case 0: return GribOverlaySettings::CELCIUS;
+    case 1: return GribOverlaySettings::FAHRENHEIT;
+    case 2: return GribOverlaySettings::KELVIN;
+    default: return GribOverlaySettings::CELCIUS;
+  }
+}
+
+// Map OpenCPN PressureFormat to Grib Units1
+// OpenCPN: 0=hPa, 1=mmHg, 2=inHg
+// Grib Units1: MILLIBARS=0, MMHG=1, INHG=2
+static int MapOcpnPressureToGrib(int ocpnUnit) {
+  // Direct mapping
+  return ocpnUnit;
+}
+
+// Map OpenCPN RainfallFormat to Grib Units4
+// OpenCPN: 0=Millimeters, 1=Inches
+// Grib Units4: MILLIMETERS=0, INCHES=1
+static int MapOcpnRainfallToGrib(int ocpnUnit) {
+  // Direct mapping
+  return ocpnUnit;
 }
 
 void DpGrib_pi::SyncUnitsToGribSettings() {
@@ -1330,15 +1359,24 @@ void DpGrib_pi::SyncUnitsToGribSettings() {
   int gribCurrent = MapOcpnSpeedToGrib(um.GetSpeedUnit());
   settings.Settings[GribOverlaySettings::CURRENT].m_Units = gribCurrent;
 
-  // Temperature: OpenCPN matches Grib (0=Celsius, 1=Fahrenheit)
-  settings.Settings[GribOverlaySettings::AIR_TEMPERATURE].m_Units = um.GetTemperatureUnit();
-  settings.Settings[GribOverlaySettings::SEA_TEMPERATURE].m_Units = um.GetTemperatureUnit();
+  // Temperature: Map OpenCPN temperature to Grib enum
+  int gribTemp = MapOcpnTempToGrib(um.GetTemperatureUnit());
+  settings.Settings[GribOverlaySettings::AIR_TEMPERATURE].m_Units = gribTemp;
+  settings.Settings[GribOverlaySettings::SEA_TEMPERATURE].m_Units = gribTemp;
 
   // Wave height uses depth unit
   settings.Settings[GribOverlaySettings::WAVE].m_Units = MapOcpnDepthToGrib(um.GetDepthUnit());
 
-  // DO NOT sync: PRESSURE, PRECIPITATION, CAPE, COMP_REFL, CLOUD, GEO_ALTITUDE, REL_HUMIDITY
+  // Pressure: Map OpenCPN pressure to Grib enum
+  int gribPressure = MapOcpnPressureToGrib(um.GetPressureUnit());
+  settings.Settings[GribOverlaySettings::PRESSURE].m_Units = gribPressure;
+
+  // Rainfall: Map OpenCPN rainfall to Grib enum
+  int gribRainfall = MapOcpnRainfallToGrib(um.GetRainfallUnit());
+  settings.Settings[GribOverlaySettings::PRECIPITATION].m_Units = gribRainfall;
+
+  // DO NOT sync: CAPE, COMP_REFL, CLOUD, GEO_ALTITUDE, REL_HUMIDITY
   // These have grib-specific options that OpenCPN doesn't provide
 
-  RequestRefresh(m_parent_window);
+  m_pGribCtrlBar->SetFactoryOptions(); // This will clear the cache AND request a refresh.
 }

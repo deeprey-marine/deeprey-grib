@@ -736,6 +736,11 @@ GribSettingsDialog::GribSettingsDialog(GRIBUICtrlBar &parent,
   m_cDataType->SetSelection(m_lastdatatype);
   PopulateUnits(m_lastdatatype);
   ReadDataTypeSettings(m_lastdatatype);
+
+  // Disable unit controls - units are now managed globally
+  m_cDataUnits->Disable();
+  m_cDataUnits->SetToolTip(_("GRIB units are now managed in the global application settings (Settings -> Display -> Units)."));
+
   m_sButtonApply->SetLabel(_("Apply"));
 
   DimeWindow(this);  // apply global colours scheme
