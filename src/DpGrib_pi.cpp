@@ -1380,3 +1380,133 @@ void DpGrib_pi::SyncUnitsToGribSettings() {
 
   m_pGribCtrlBar->SetFactoryOptions(); // This will clear the cache AND request a refresh.
 }
+
+//----------------------------------------------------------------------------------------------------------
+//          Visualization Feature Toggles Implementation
+//----------------------------------------------------------------------------------------------------------
+
+void DpGrib_pi::Internal_SetBarbedArrowsVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetBarbedArrowsVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetBarbedArrowsVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bBarbedArrows = visible;
+
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+void DpGrib_pi::Internal_SetIsoBarsVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetIsoBarsVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetIsoBarsVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bIsoBars = visible;
+
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+void DpGrib_pi::Internal_SetNumbersVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetNumbersVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetNumbersVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bNumbers = visible;
+
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+void DpGrib_pi::Internal_SetOverlayMapVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetOverlayMapVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetOverlayMapVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bOverlayMap = visible;
+
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+void DpGrib_pi::Internal_SetDirectionArrowsVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetDirectionArrowsVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetDirectionArrowsVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bDirectionArrows = visible;
+
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+void DpGrib_pi::Internal_SetParticlesVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetParticlesVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetParticlesVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bParticles = visible;
+
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}

@@ -196,6 +196,14 @@ public:
   bool Internal_IsLayerAvailable(int layerId) const;
   wxString Internal_GetLayerValueAtPoint(int layerId, double latitude, double longitude) const;
 
+  // Visualization feature toggles
+  void Internal_SetBarbedArrowsVisible(int layerId, bool visible);
+  void Internal_SetIsoBarsVisible(int layerId, bool visible);
+  void Internal_SetNumbersVisible(int layerId, bool visible);
+  void Internal_SetOverlayMapVisible(int layerId, bool visible);
+  void Internal_SetDirectionArrowsVisible(int layerId, bool visible);
+  void Internal_SetParticlesVisible(int layerId, bool visible);
+
   int m_MenuItem;
   bool m_DialogStyleChanged;
 

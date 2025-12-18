@@ -326,4 +326,44 @@ void DpGribAPI::NotifyDownloadProgress(long transferred, long total,
     }
 }
 
+// =============================================================================
+// Visualization Feature Toggles
+// =============================================================================
+
+void DpGribAPI::SetBarbedArrowsVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetBarbedArrowsVisible(layerId, visible);
+    }
+}
+
+void DpGribAPI::SetIsoBarsVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetIsoBarsVisible(layerId, visible);
+    }
+}
+
+void DpGribAPI::SetNumbersVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetNumbersVisible(layerId, visible);
+    }
+}
+
+void DpGribAPI::SetOverlayMapVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetOverlayMapVisible(layerId, visible);
+    }
+}
+
+void DpGribAPI::SetDirectionArrowsVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetDirectionArrowsVisible(layerId, visible);
+    }
+}
+
+void DpGribAPI::SetParticlesVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetParticlesVisible(layerId, visible);
+    }
+}
+
 } // namespace DpGrib
