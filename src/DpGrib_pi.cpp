@@ -1510,3 +1510,173 @@ void DpGrib_pi::Internal_SetParticlesVisible(int layerId, bool visible) {
   // Clear cache and request refresh
   m_pGribCtrlBar->SetFactoryOptions();
 }
+
+//----------------------------------------------------------------------------------------------------------
+//          Visualization State Getters Implementation
+//----------------------------------------------------------------------------------------------------------
+
+bool DpGrib_pi::Internal_IsBarbedArrowsVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_IsBarbedArrowsVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_IsBarbedArrowsVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bBarbedArrows;
+}
+
+bool DpGrib_pi::Internal_IsIsoBarsVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_IsIsoBarsVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_IsIsoBarsVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bIsoBars;
+}
+
+bool DpGrib_pi::Internal_AreNumbersVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_AreNumbersVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_AreNumbersVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bNumbers;
+}
+
+bool DpGrib_pi::Internal_IsOverlayMapVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_IsOverlayMapVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_IsOverlayMapVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bOverlayMap;
+}
+
+bool DpGrib_pi::Internal_AreDirectionArrowsVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_AreDirectionArrowsVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_AreDirectionArrowsVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bDirectionArrows;
+}
+
+bool DpGrib_pi::Internal_AreParticlesVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_AreParticlesVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_AreParticlesVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bParticles;
+}
+
+//----------------------------------------------------------------------------------------------------------
+//          Additional Visualization Settings Implementation
+//----------------------------------------------------------------------------------------------------------
+
+void DpGrib_pi::Internal_SetIsoBarVisibility(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetIsoBarVisibility - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetIsoBarVisibility - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_iIsoBarVisibility = visible;
+
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+bool DpGrib_pi::Internal_GetIsoBarVisibility(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_GetIsoBarVisibility - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_GetIsoBarVisibility - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_iIsoBarVisibility;
+}
+
+void DpGrib_pi::Internal_SetAbbreviatedNumbers(int layerId, bool abbreviated) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetAbbreviatedNumbers - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetAbbreviatedNumbers - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bAbbrIsoBarsNumbers = abbreviated;
+
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+bool DpGrib_pi::Internal_AreNumbersAbbreviated(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_AreNumbersAbbreviated - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_AreNumbersAbbreviated - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bAbbrIsoBarsNumbers;
+}

@@ -366,4 +366,72 @@ void DpGribAPI::SetParticlesVisible(int layerId, bool visible) {
     }
 }
 
+bool DpGribAPI::IsBarbedArrowsVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsBarbedArrowsVisible(layerId);
+    }
+    return false;
+}
+
+bool DpGribAPI::IsIsoBarsVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsIsoBarsVisible(layerId);
+    }
+    return false;
+}
+
+bool DpGribAPI::AreNumbersVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_AreNumbersVisible(layerId);
+    }
+    return false;
+}
+
+bool DpGribAPI::IsOverlayMapVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsOverlayMapVisible(layerId);
+    }
+    return false;
+}
+
+bool DpGribAPI::AreDirectionArrowsVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_AreDirectionArrowsVisible(layerId);
+    }
+    return false;
+}
+
+bool DpGribAPI::AreParticlesVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_AreParticlesVisible(layerId);
+    }
+    return false;
+}
+
+void DpGribAPI::SetIsoBarVisibility(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetIsoBarVisibility(layerId, visible);
+    }
+}
+
+bool DpGribAPI::GetIsoBarVisibility(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetIsoBarVisibility(layerId);
+    }
+    return false;
+}
+
+void DpGribAPI::SetAbbreviatedNumbers(int layerId, bool abbreviated) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetAbbreviatedNumbers(layerId, abbreviated);
+    }
+}
+
+bool DpGribAPI::AreNumbersAbbreviated(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_AreNumbersAbbreviated(layerId);
+    }
+    return false;
+}
+
 } // namespace DpGrib

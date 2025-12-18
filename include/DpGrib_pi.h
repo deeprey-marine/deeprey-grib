@@ -204,6 +204,20 @@ public:
   void Internal_SetDirectionArrowsVisible(int layerId, bool visible);
   void Internal_SetParticlesVisible(int layerId, bool visible);
 
+  // Visualization state getters
+  bool Internal_IsBarbedArrowsVisible(int layerId) const;
+  bool Internal_IsIsoBarsVisible(int layerId) const;
+  bool Internal_AreNumbersVisible(int layerId) const;
+  bool Internal_IsOverlayMapVisible(int layerId) const;
+  bool Internal_AreDirectionArrowsVisible(int layerId) const;
+  bool Internal_AreParticlesVisible(int layerId) const;
+
+  // Additional visualization settings
+  void Internal_SetIsoBarVisibility(int layerId, bool visible);
+  bool Internal_GetIsoBarVisibility(int layerId) const;
+  void Internal_SetAbbreviatedNumbers(int layerId, bool abbreviated);
+  bool Internal_AreNumbersAbbreviated(int layerId) const;
+
   int m_MenuItem;
   bool m_DialogStyleChanged;
 
