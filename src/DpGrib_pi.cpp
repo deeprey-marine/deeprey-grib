@@ -1398,7 +1398,9 @@ void DpGrib_pi::Internal_SetBarbedArrowsVisible(int layerId, bool visible) {
 
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bBarbedArrows = visible;
-
+    if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
   // Persist the change
   settings.Write();
 
@@ -1419,7 +1421,9 @@ void DpGrib_pi::Internal_SetIsoBarsVisible(int layerId, bool visible) {
 
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bIsoBars = visible;
-
+  if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
   // Persist the change
   settings.Write();
 
@@ -1440,7 +1444,9 @@ void DpGrib_pi::Internal_SetNumbersVisible(int layerId, bool visible) {
 
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bNumbers = visible;
-
+  if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
   // Persist the change
   settings.Write();
 
@@ -1461,7 +1467,9 @@ void DpGrib_pi::Internal_SetOverlayMapVisible(int layerId, bool visible) {
 
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bOverlayMap = visible;
-
+  if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
   // Persist the change
   settings.Write();
 
@@ -1482,7 +1490,9 @@ void DpGrib_pi::Internal_SetDirectionArrowsVisible(int layerId, bool visible) {
 
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bDirectionArrows = visible;
-
+  if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
   // Persist the change
   settings.Write();
 
@@ -1503,7 +1513,9 @@ void DpGrib_pi::Internal_SetParticlesVisible(int layerId, bool visible) {
 
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bParticles = visible;
-
+  if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
   // Persist the change
   settings.Write();
 

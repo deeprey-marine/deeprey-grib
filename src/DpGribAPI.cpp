@@ -29,6 +29,7 @@ DpGribAPI::~DpGribAPI() {
     // Clear all callbacks on destruction
     m_stateCallbacks.clear();
     m_dataChangedCallbacks.clear();
+    m_layerStateChangedCallbacks.clear();
     m_progressCallbacks.clear();
     m_cursorCallbacks.clear();
 }
@@ -135,6 +136,56 @@ void DpGribAPI::NotifyDataChanged() {
     for (auto& [id, callback] : callbacks) {
         if (callback) {
             callback();
+        }
+    }
+}
+
+// =============================================================================
+// Layer State Changed Callbacks
+// =============================================================================
+
+uint64_t DpGribAPI::AddLayerStateChangedCallback(LayerStateChangedCallback callback) {
+    uint64_t id = m_nextCallbackId++;
+    m_layerStateChangedCallbacks[id] = std::move(callback);
+    return id;
+}
+
+void DpGribAPI::RemoveLayerStateChangedCallback(uint64_t callbackId) {
+    m_layerStateChangedCallbacks.erase(callbackId);
+}
+
+void DpGribAPI::NotifyLayerStateChanged(const std::vector<int>& disabledLayerIds) {
+    // Call all registered layer state changed callbacks
+    // Make a copy of the callback map in case a callback modifies it
+    auto callbacks = m_layerStateChangedCallbacks;
+    for (auto& [id, callback] : callbacks) {
+        if (callback) {
+            callback(disabledLayerIds);
+        }
+    }
+}
+
+// =============================================================================
+// Format State Changed Callbacks
+// =============================================================================
+
+uint64_t DpGribAPI::AddFormatStateChangedCallback(FormatStateChangedCallback callback) {
+    uint64_t callbackId = m_nextCallbackId++;
+    m_formatStateChangedCallbacks[callbackId] = std::move(callback);
+    return callbackId;
+}
+
+void DpGribAPI::RemoveFormatStateChangedCallback(uint64_t callbackId) {
+    m_formatStateChangedCallbacks.erase(callbackId);
+}
+
+void DpGribAPI::NotifyFormatStateChanged(const std::vector<std::pair<int, int>>& changedFormats) {
+    // Call all registered format state changed callbacks
+    // Make a copy of the callback map in case a callback modifies it
+    auto callbacks = m_formatStateChangedCallbacks;
+    for (auto& [id, callback] : callbacks) {
+        if (callback) {
+            callback(changedFormats);
         }
     }
 }
