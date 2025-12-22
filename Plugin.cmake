@@ -237,4 +237,9 @@ macro(add_plugin_libraries)
     # wxJSON for JSON parsing
     add_subdirectory("${CMAKE_SOURCE_DIR}/opencpn-libs/wxJSON")
     target_link_libraries(${PACKAGE_NAME} ocpn::wxjson)
+
+    # Jasper for JPEG 2000 support in GRIB files
+    add_subdirectory("${CMAKE_SOURCE_DIR}/libs/jasper")
+    target_link_libraries(${PACKAGE_NAME} JASPER)
+    target_include_directories(${PACKAGE_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/libs/jasper/src/include)
 endmacro()
