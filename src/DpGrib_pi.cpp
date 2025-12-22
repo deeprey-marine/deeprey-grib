@@ -1000,6 +1000,75 @@ void DpGrib_pi::NotifyDownloadProgress(long transferred, long total,
   }
 }
 
+// Playback controls
+void DpGrib_pi::Internal_SetLoopMode(bool loop) {
+  if (!m_pGribCtrlBar) return;
+  m_pGribCtrlBar->m_OverlaySettings.m_bLoopMode = loop;
+  m_pGribCtrlBar->m_OverlaySettings.Write();
+  // Refresh UI state
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+bool DpGrib_pi::Internal_GetLoopMode() const {
+  if (!m_pGribCtrlBar) return false;
+  return m_pGribCtrlBar->m_OverlaySettings.m_bLoopMode;
+}
+
+void DpGrib_pi::Internal_SetPlaybackSpeed(int speed) {
+  if (!m_pGribCtrlBar) return;
+  if (speed < 1) speed = 1; // enforce reasonable minimum
+  m_pGribCtrlBar->m_OverlaySettings.m_UpdatesPerSecond = speed;
+  m_pGribCtrlBar->m_OverlaySettings.Write();
+
+  // If playback is running, restart timer with the new interval
+  if (m_pGribCtrlBar->m_tPlayStop.IsRunning()) {
+    m_pGribCtrlBar->m_tPlayStop.Stop();
+    m_pGribCtrlBar->m_tPlayStop.Start(3000 / speed, wxTIMER_CONTINUOUS);
+  }
+
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+int DpGrib_pi::Internal_GetPlaybackSpeed() const {
+  if (!m_pGribCtrlBar) return 4;
+  return m_pGribCtrlBar->m_OverlaySettings.m_UpdatesPerSecond;
+}
+
+void DpGrib_pi::Internal_SetGlobalSymbolSpacing(int pixels) {
+  if (!m_pGribCtrlBar) return;
+
+  GribOverlaySettings& overlay = m_pGribCtrlBar->m_OverlaySettings;
+
+  // 1. Calculate Particle Density based on pixel spacing
+  // We map the pixel range [30..100] inversely to Density [2.0..0.5]
+  // 30px (Dense) -> 2.0 density
+  // 100px (Sparse) -> 0.5 density
+  double normalized = (double)(pixels - 30) / 70.0; // 0.0 to 1.0 (Dense to Sparse)
+  double density = 2.0 - (1.5 * normalized);        // Map to 2.0 down to 0.5
+
+  // 2. Apply to WIND (Barbs + Particles)
+  overlay.Settings[GribOverlaySettings::WIND].m_iBarbArrSpacing = pixels;
+  overlay.Settings[GribOverlaySettings::WIND].m_bBarbArrFixSpac = false;
+  overlay.Settings[GribOverlaySettings::WIND].m_dParticleDensity = density; // <--- NEW
+
+  // 3. Apply to WIND_GUST (Barbs only)
+  overlay.Settings[GribOverlaySettings::WIND_GUST].m_iBarbArrSpacing = pixels;
+  overlay.Settings[GribOverlaySettings::WIND_GUST].m_bBarbArrFixSpac = true;
+
+  // 4. Apply to WAVES (Arrows only)
+  overlay.Settings[GribOverlaySettings::WAVE].m_iDirArrSpacing = pixels;
+  overlay.Settings[GribOverlaySettings::WAVE].m_bDirArrFixSpac = false;
+
+  // 5. Apply to CURRENT (Arrows + Particles)
+  overlay.Settings[GribOverlaySettings::CURRENT].m_iDirArrSpacing = pixels;
+  overlay.Settings[GribOverlaySettings::CURRENT].m_bDirArrFixSpac = false;
+  overlay.Settings[GribOverlaySettings::CURRENT].m_dParticleDensity = density; // <--- NEW
+
+  // 6. Save and Refresh
+  overlay.Write();
+  m_pGribCtrlBar->SetFactoryOptions(); 
+  RequestRefresh(m_parent_window);
+}
 //----------------------------------------------------------------------------------------------------------
 //          Timeline Management Implementation
 //----------------------------------------------------------------------------------------------------------

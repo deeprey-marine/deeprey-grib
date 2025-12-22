@@ -288,6 +288,46 @@ wxString DpGribAPI::GetTimeStringLocal(int index) const {
 }
 
 // =============================================================================
+// Playback Controls
+// =============================================================================
+
+void DpGribAPI::SetLoopMode(bool loop) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetLoopMode(loop);
+    }
+}
+
+bool DpGribAPI::GetLoopMode() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetLoopMode();
+    }
+    return false;
+}
+
+void DpGribAPI::SetPlaybackSpeed(int updatesPerSecond) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetPlaybackSpeed(updatesPerSecond);
+    }
+}
+
+int DpGribAPI::GetPlaybackSpeed() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetPlaybackSpeed();
+    }
+    return 4; // sensible default
+}
+
+// =============================================================================
+// Global Symbol Spacing
+// =============================================================================
+
+void DpGribAPI::SetGlobalSymbolSpacing(int pixels) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetGlobalSymbolSpacing(pixels);
+    }
+}
+
+// =============================================================================
 // Layer / Data Field Management
 // =============================================================================
 

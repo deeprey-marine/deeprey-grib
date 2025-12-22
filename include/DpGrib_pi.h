@@ -179,6 +179,15 @@ public:
   bool Internal_IsDownloading() const;
   void Internal_CancelDownload();
   void NotifyDownloadProgress(long transferred, long total, bool completed, bool success);
+
+  // Playback controls
+  void Internal_SetLoopMode(bool loop);
+  bool Internal_GetLoopMode() const;
+  void Internal_SetPlaybackSpeed(int speed);
+  int Internal_GetPlaybackSpeed() const;
+
+  // Global symbol spacing control
+  void Internal_SetGlobalSymbolSpacing(int pixels);
   
   // Timeline management
   int Internal_GetTimeStepCount() const;
