@@ -214,7 +214,7 @@ GRIBUICtrlBar::GRIBUICtrlBar(wxWindow *parent, wxWindowID id,
     pConf->Read(_T ( "WindGustPlot" ),
                 &m_bDataPlot[GribOverlaySettings::WIND_GUST], false);
     pConf->Read(_T ( "PressurePlot" ),
-                &m_bDataPlot[GribOverlaySettings::PRESSURE], false);
+                &m_bDataPlot[GribOverlaySettings::PRESSURE], true);
     pConf->Read(_T ( "WavePlot" ), &m_bDataPlot[GribOverlaySettings::WAVE],
                 false);
     pConf->Read(_T ( "CurrentPlot" ),

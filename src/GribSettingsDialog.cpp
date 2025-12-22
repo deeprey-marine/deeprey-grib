@@ -206,7 +206,7 @@ void GribOverlaySettings::Read() {
                 &Settings[i].m_iBarbArrSpacing, 50);
 
     pConf->Read(Name + _T ( "Display Isobars" ), &Settings[i].m_bIsoBars,
-                false);
+                i == PRESSURE);
     pConf->Read(Name + _T ( "Abbreviated Isobars Numbers" ),
                 &Settings[i].m_bAbbrIsoBarsNumbers, false);
 
@@ -214,7 +214,7 @@ void GribOverlaySettings::Read() {
     pConf->Read(Name + _T ( "IsoBarSpacing" ), &Settings[i].m_iIsoBarSpacing,
                 defspacing[i]);
     pConf->Read(Name + _T ( "IsoBarVisibility" ),
-                &Settings[i].m_iIsoBarVisibility, false);
+                &Settings[i].m_iIsoBarVisibility, i == PRESSURE);
 
     pConf->Read(Name + _T ( "DirectionArrows" ),
                 &Settings[i].m_bDirectionArrows, false);
@@ -229,7 +229,7 @@ void GribOverlaySettings::Read() {
                 &Settings[i].m_iDirArrSpacing, 50);
 
     pConf->Read(Name + _T ( "OverlayMap" ), &Settings[i].m_bOverlayMap,
-                false);
+                i == WIND);
     int defcolor[SETTINGS_COUNT] = {1, 1, 0, 0, 6, 4, 5, 2, 3, 7};
     pConf->Read(Name + _T ( "OverlayMapColors" ),
                 &Settings[i].m_iOverlayMapColors, defcolor[i]);
