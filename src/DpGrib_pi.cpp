@@ -36,6 +36,7 @@
 #include <wx/stdpaths.h>
 
 #include "DpGrib_pi.h"
+#include "DpUnitManager.h"
 
 #ifdef __WXQT__
 #include "qdebug.h"
@@ -117,6 +118,9 @@ int DpGrib_pi::Init(void) {
 
   //    And load the configuration items
   LoadConfig();
+
+  // Initialize the unit manager with OpenCPN config
+  DpUnitManager::Instance().Init(m_pconfig);
 
   // Get a pointer to the opencpn display canvas, to use as a parent for the
   // GRIB dialog
@@ -492,6 +496,9 @@ void DpGrib_pi::OnToolbarToolCallback(int id) {
                                        m_bDrawBarbedArrowHead);
 
     m_pGribCtrlBar->OpenFile(m_bLoadLastOpenFile == 0);
+
+    // Sync units with OpenCPN settings on first open
+    SyncUnitsToGribSettings();
   }
 
   // Toggle GRIB overlay display
@@ -688,11 +695,11 @@ void DpGrib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
     return;
   }
 
-  // Handle global settings update (optional)
-  // deeprey-gui may broadcast theme changes or other global settings
+  // Handle global settings update
+  // OpenCPN broadcasts this when user changes Settings → Display → Units
   if (message_id == _T("GLOBAL_SETTINGS_UPDATED")) {
-    // React to global settings change if needed
-    // For example: update colors for night mode
+    DpUnitManager::Instance().LoadSettings();
+    SyncUnitsToGribSettings();
     return;
   }
 
@@ -1040,6 +1047,14 @@ bool DpGrib_pi::Internal_SetTimeIndex(int index) {
   return true;
 }
 
+bool DpGrib_pi::Internal_SetDisplayToCurrentTime() {
+  // Call the plugin's existing "now" logic
+  // This finds nearest forecast and updates the control bar and display
+  m_pGribCtrlBar->ComputeBestForecastForNow();
+  
+  return true;
+}
+
 wxString DpGrib_pi::Internal_GetCurrentTimeString() const {
   if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
     return wxEmptyString;
@@ -1071,9 +1086,97 @@ wxString DpGrib_pi::Internal_GetTimeString(int index) const {
   }
   
   wxDateTime time = rsa->Item(index).m_Reference_Time;
-  return time.Format(_T("%Y-%m-%d %H:%M UTC"));
+  DateTimeFormatOptions options;
+  options.SetFormatString("$weekday_short_date $hour_minutes");  // "Wed 12/15/2021 10:00"
+  options.SetTimezone("UTC");  // Use UTC
+
+  return toUsrDateTimeFormat_Plugin(time, options);
 }
 
+wxString DpGrib_pi::Internal_GetCurrentTimeStringLocal() const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return wxEmptyString;
+  }
+  
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return wxEmptyString;
+  
+  int index = m_pGribCtrlBar->m_cRecordForecast->GetCurrentSelection();
+  if (index < 0 || index >= (int)rsa->GetCount()) {
+    return wxEmptyString;
+  }
+  
+  // GRIB Reference_Time is in UTC (stored as time_t)
+  // We need to convert it to local time before passing to toUsrDateTimeFormat_Plugin
+  wxDateTime timeUTC;
+  timeUTC.Set(rsa->Item(index).m_Reference_Time);  // time_t is UTC
+  wxDateTime timeLocal = timeUTC.FromTimezone(wxDateTime::Local);
+  
+  // Configure formatting options for local time
+  DateTimeFormatOptions options;
+  options.SetFormatString("$weekday_short_date $hour_minutes");  // "Wed 12/15/2021 10:00"
+  options.SetTimezone("Local Time");  // Use system local time
+  options.SetShowTimezone(true);  // Include timezone abbreviation (e.g., "EST")
+
+  return toUsrDateTimeFormat_Plugin(timeLocal, options);
+}
+
+wxString DpGrib_pi::Internal_GetTimeStringLocal(int index) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return wxEmptyString;
+  }
+  
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return wxEmptyString;
+  
+  int count = rsa->GetCount();
+  if (index < 0 || index >= count) {
+    return wxEmptyString;
+  }
+  
+  // GRIB Reference_Time is in UTC (stored as time_t)
+  // We need to convert it to local time before passing to toUsrDateTimeFormat_Plugin
+  wxDateTime timeUTC;
+  timeUTC.Set(rsa->Item(index).m_Reference_Time);  // time_t is UTC
+  wxDateTime timeLocal = timeUTC.FromTimezone(wxDateTime::Local);
+  
+  // Configure formatting options for local time
+  DateTimeFormatOptions options;
+  options.SetFormatString("$weekday_short_date $hour_minutes");  // "Wed 12/15/2021 10:00"
+  options.SetTimezone("Local Time");  // Use system local time
+  options.SetShowTimezone(true);  // Include timezone abbreviation (e.g., "EST")
+
+  return toUsrDateTimeFormat_Plugin(timeLocal, options);
+}
+
+void DpGrib_pi::Internal_SetOverlayTransparency(int transparency) {
+  if (!m_pGribCtrlBar) return;
+  
+  // Clamp to 0-100 range
+  if (transparency < 0) transparency = 0;
+  if (transparency > 100) transparency = 100;
+  
+  // Convert from percentage (0-100) to internal alpha (0-254)
+  // 0% = fully transparent (alpha 0)
+  // 100% = fully opaque (alpha 254)
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.m_iOverlayTransparency = (int)(transparency * 254.0 / 100.0);
+  
+  // Save to config
+  settings.Write();
+  
+  // Apply changes immediately
+  m_pGribCtrlBar->SetFactoryOptions();
+  RequestRefresh(GetOCPNCanvasWindow());
+}
+
+int DpGrib_pi::Internal_GetOverlayTransparency() const {
+  if (!m_pGribCtrlBar) return 50; // Default 50%
+  
+  // Convert from internal alpha (0-254) to percentage (0-100)
+  int alpha = m_pGribCtrlBar->m_OverlaySettings.m_iOverlayTransparency;
+  return (int)(alpha * 100.0 / 254.0);
+}
 //----------------------------------------------------------------------------------------------------------
 //          Layer Management Implementation
 //----------------------------------------------------------------------------------------------------------
@@ -1160,9 +1263,7 @@ wxString DpGrib_pi::Internal_GetLayerValueAtPoint(int layerId, double latitude, 
   }
   
   // Use the control bar's helper method for consistent formatting
-  // Returns const reference - no copy overhead
-  const GribLayerValue& result = m_pGribCtrlBar->GetFormattedLayerValueAtPoint(layerId, longitude, latitude);
-  return result.formatted;
+  return m_pGribCtrlBar->GetFormattedLayerValueAtPoint(layerId, longitude, latitude);
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -1182,4 +1283,412 @@ void GribPreferencesDialog::OnStartOptionChange(wxCommandEvent &event) {
 void GribPreferencesDialog::OnOKClick(wxCommandEvent &event) {
   if (g_pi) g_pi->UpdatePrefs(this);
   Close();
+}
+
+//----------------------------------------------------------------------------------------------------------
+//          Unit Synchronization Implementation
+//----------------------------------------------------------------------------------------------------------
+
+// Map DeepRey GUI SpeedFormat to Grib Units0/Units7
+// DeepRey GUI: 0=Knots, 1=Mph, 2=Km/h, 3=m/s
+// Grib Units0: KNOTS=0, M_S=1, MPH=2, KPH=3, BFS=4
+// Grib Units7: KNOTS=0, M_S=1, MPH=2, KPH=3
+static int MapOcpnSpeedToGrib(int ocpnUnit) {
+  switch (ocpnUnit) {
+    case 0: return GribOverlaySettings::KNOTS;  // 0
+    case 1: return GribOverlaySettings::MPH;    // 2
+    case 2: return GribOverlaySettings::KPH;    // 3
+    case 3: return GribOverlaySettings::M_S;    // 1
+    default: return GribOverlaySettings::KNOTS;
+  }
+}
+
+// Map OpenCPN S52_DEPTH_UNIT to Grib Units2
+// OpenCPN: 0=ft, 1=m, 2=fa
+// Grib Units2: METERS=0, FEET=1, FATHOMS=2
+static int MapOcpnDepthToGrib(int ocpnUnit) {
+  switch (ocpnUnit) {
+    case 0: return GribOverlaySettings::FEET;    // 1
+    case 1: return GribOverlaySettings::METERS;  // 0
+    case 2: return GribOverlaySettings::FATHOMS; // 2
+    default: return GribOverlaySettings::METERS;
+  }
+}
+
+// Map OpenCPN TemperatureFormat to Grib Units3
+// OpenCPN: 0=Celsius, 1=Fahrenheit, 2=Kelvin
+// Grib Units3: CELCIUS=0, FAHRENHEIT=1, KELVIN=2
+static int MapOcpnTempToGrib(int ocpnUnit) {
+  switch (ocpnUnit) {
+    case 0: return GribOverlaySettings::CELCIUS;
+    case 1: return GribOverlaySettings::FAHRENHEIT;
+    case 2: return GribOverlaySettings::KELVIN;
+    default: return GribOverlaySettings::CELCIUS;
+  }
+}
+
+// Map OpenCPN PressureFormat to Grib Units1
+// OpenCPN: 0=hPa, 1=mmHg, 2=inHg
+// Grib Units1: MILLIBARS=0, MMHG=1, INHG=2
+static int MapOcpnPressureToGrib(int ocpnUnit) {
+  // Direct mapping
+  return ocpnUnit;
+}
+
+// Map OpenCPN RainfallFormat to Grib Units4
+// OpenCPN: 0=Millimeters, 1=Inches
+// Grib Units4: MILLIMETERS=0, INCHES=1
+static int MapOcpnRainfallToGrib(int ocpnUnit) {
+  // Direct mapping
+  return ocpnUnit;
+}
+
+void DpGrib_pi::SyncUnitsToGribSettings() {
+  auto& um = DpUnitManager::Instance();
+  if (!um.IsInitialized()) return;
+  if (!m_pGribCtrlBar) return;
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+
+  // Map OpenCPN wind speed to Grib speed enum
+  int gribSpeed = MapOcpnSpeedToGrib(um.GetWindSpeedUnit());
+  settings.Settings[GribOverlaySettings::WIND].m_Units = gribSpeed;
+  settings.Settings[GribOverlaySettings::WIND_GUST].m_Units = gribSpeed;
+
+  // Map OpenCPN speed to Grib current enum (uses same mapping)
+  int gribCurrent = MapOcpnSpeedToGrib(um.GetSpeedUnit());
+  settings.Settings[GribOverlaySettings::CURRENT].m_Units = gribCurrent;
+
+  // Temperature: Map OpenCPN temperature to Grib enum
+  int gribTemp = MapOcpnTempToGrib(um.GetTemperatureUnit());
+  settings.Settings[GribOverlaySettings::AIR_TEMPERATURE].m_Units = gribTemp;
+  settings.Settings[GribOverlaySettings::SEA_TEMPERATURE].m_Units = gribTemp;
+
+  // Wave height uses depth unit
+  settings.Settings[GribOverlaySettings::WAVE].m_Units = MapOcpnDepthToGrib(um.GetDepthUnit());
+
+  // Pressure: Map OpenCPN pressure to Grib enum
+  int gribPressure = MapOcpnPressureToGrib(um.GetPressureUnit());
+  settings.Settings[GribOverlaySettings::PRESSURE].m_Units = gribPressure;
+
+  // Rainfall: Map OpenCPN rainfall to Grib enum
+  int gribRainfall = MapOcpnRainfallToGrib(um.GetRainfallUnit());
+  settings.Settings[GribOverlaySettings::PRECIPITATION].m_Units = gribRainfall;
+
+  // DO NOT sync: CAPE, COMP_REFL, CLOUD, GEO_ALTITUDE, REL_HUMIDITY
+  // These have grib-specific options that OpenCPN doesn't provide
+
+  m_pGribCtrlBar->SetFactoryOptions(); // This will clear the cache AND request a refresh.
+}
+
+//----------------------------------------------------------------------------------------------------------
+//          Visualization Feature Toggles Implementation
+//----------------------------------------------------------------------------------------------------------
+
+void DpGrib_pi::Internal_SetBarbedArrowsVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetBarbedArrowsVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetBarbedArrowsVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bBarbedArrows = visible;
+    if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+void DpGrib_pi::Internal_SetIsoBarsVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetIsoBarsVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetIsoBarsVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bIsoBars = visible;
+  if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+void DpGrib_pi::Internal_SetNumbersVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetNumbersVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetNumbersVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bNumbers = visible;
+  if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+void DpGrib_pi::Internal_SetOverlayMapVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetOverlayMapVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetOverlayMapVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bOverlayMap = visible;
+  if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+void DpGrib_pi::Internal_SetDirectionArrowsVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetDirectionArrowsVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetDirectionArrowsVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bDirectionArrows = visible;
+  if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+void DpGrib_pi::Internal_SetParticlesVisible(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetParticlesVisible - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetParticlesVisible - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bParticles = visible;
+  if (m_pGribCtrlBar->m_gCursorData) {
+    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
+  }
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+//----------------------------------------------------------------------------------------------------------
+//          Visualization State Getters Implementation
+//----------------------------------------------------------------------------------------------------------
+
+bool DpGrib_pi::Internal_IsBarbedArrowsVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_IsBarbedArrowsVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_IsBarbedArrowsVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bBarbedArrows;
+}
+
+bool DpGrib_pi::Internal_IsIsoBarsVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_IsIsoBarsVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_IsIsoBarsVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bIsoBars;
+}
+
+bool DpGrib_pi::Internal_AreNumbersVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_AreNumbersVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_AreNumbersVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bNumbers;
+}
+
+bool DpGrib_pi::Internal_IsOverlayMapVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_IsOverlayMapVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_IsOverlayMapVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bOverlayMap;
+}
+
+bool DpGrib_pi::Internal_AreDirectionArrowsVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_AreDirectionArrowsVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_AreDirectionArrowsVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bDirectionArrows;
+}
+
+bool DpGrib_pi::Internal_AreParticlesVisible(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_AreParticlesVisible - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_AreParticlesVisible - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bParticles;
+}
+
+//----------------------------------------------------------------------------------------------------------
+//          Additional Visualization Settings Implementation
+//----------------------------------------------------------------------------------------------------------
+
+void DpGrib_pi::Internal_SetIsoBarVisibility(int layerId, bool visible) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetIsoBarVisibility - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetIsoBarVisibility - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_iIsoBarVisibility = visible;
+
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+bool DpGrib_pi::Internal_GetIsoBarVisibility(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_GetIsoBarVisibility - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_GetIsoBarVisibility - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_iIsoBarVisibility;
+}
+
+void DpGrib_pi::Internal_SetAbbreviatedNumbers(int layerId, bool abbreviated) {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_SetAbbreviatedNumbers - m_pGribCtrlBar is null");
+    return;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_SetAbbreviatedNumbers - Invalid layerId: %d", layerId);
+    return;
+  }
+
+  GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  settings.Settings[layerId].m_bAbbrIsoBarsNumbers = abbreviated;
+
+  // Persist the change
+  settings.Write();
+
+  // Clear cache and request refresh
+  m_pGribCtrlBar->SetFactoryOptions();
+}
+
+bool DpGrib_pi::Internal_AreNumbersAbbreviated(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    wxLogWarning("DpGrib_pi::Internal_AreNumbersAbbreviated - m_pGribCtrlBar is null");
+    return false;
+  }
+
+  if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
+    wxLogWarning("DpGrib_pi::Internal_AreNumbersAbbreviated - Invalid layerId: %d", layerId);
+    return false;
+  }
+
+  const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
+  return settings.Settings[layerId].m_bAbbrIsoBarsNumbers;
 }

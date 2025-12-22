@@ -22,6 +22,7 @@
  */
 #include "pi_gl.h"
 #include "DpGrib_pi.h"
+#include "DpGribAPI.h"
 
 #include "folder.xpm"
 
@@ -67,28 +68,48 @@ void CursorData::OnCBAny(wxCommandEvent &event) {
 }
 
 void CursorData::ResolveDisplayConflicts(int Id) {
-  // allow multi selection only if there is no display type superposition
+  // Track which layer-format pairs were changed for API notification
+  std::vector<std::pair<int, int>> changedFormats;  // (layerId, formatType)
+
   for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++) {
-    if (i != Id && m_gparent.m_bDataPlot[i]) {
-      if ((m_gparent.m_OverlaySettings.Settings[Id].m_bBarbedArrows &&
-           m_gparent.m_OverlaySettings.Settings[i].m_bBarbedArrows) ||
-          (m_gparent.m_OverlaySettings.Settings[Id].m_bDirectionArrows &&
-           m_gparent.m_OverlaySettings.Settings[i].m_bDirectionArrows) ||
-          (m_gparent.m_OverlaySettings.Settings[Id].m_bIsoBars &&
-           m_gparent.m_OverlaySettings.Settings[i].m_bIsoBars) ||
-          (m_gparent.m_OverlaySettings.Settings[Id].m_bNumbers &&
-           m_gparent.m_OverlaySettings.Settings[i].m_bNumbers) ||
-          (m_gparent.m_OverlaySettings.Settings[Id].m_bOverlayMap &&
-           m_gparent.m_OverlaySettings.Settings[i].m_bOverlayMap) ||
-          (m_gparent.m_OverlaySettings.Settings[Id].m_bParticles &&
-           m_gparent.m_OverlaySettings.Settings[i].m_bParticles)) {
-        m_gparent.m_bDataPlot[i] = false;
-        wxWindow *win = FindWindow(i);
-        ((wxCheckBox *)win)->SetValue(false);
-      }
+    if (i == Id || !m_gparent.m_bDataPlot[i]) continue;
+
+    auto& newSettings = m_gparent.m_OverlaySettings.Settings[Id];
+    auto& existingSettings = m_gparent.m_OverlaySettings.Settings[i];
+
+    // Check each format individually - only disable the specific conflict
+    if (newSettings.m_bBarbedArrows && existingSettings.m_bBarbedArrows) {
+      existingSettings.m_bBarbedArrows = false;
+      changedFormats.push_back({i, 0});  // FORMAT_BARBED_ARROWS
+    }
+    if (newSettings.m_bDirectionArrows && existingSettings.m_bDirectionArrows) {
+      existingSettings.m_bDirectionArrows = false;
+      changedFormats.push_back({i, 1});  // FORMAT_DIRECTION_ARROWS
+    }
+    if (newSettings.m_bIsoBars && existingSettings.m_bIsoBars) {
+      existingSettings.m_bIsoBars = false;
+      changedFormats.push_back({i, 2});  // FORMAT_ISOBARS
+    }
+    if (newSettings.m_bNumbers && existingSettings.m_bNumbers) {
+      existingSettings.m_bNumbers = false;
+      changedFormats.push_back({i, 3});  // FORMAT_NUMBERS
+    }
+    if (newSettings.m_bOverlayMap && existingSettings.m_bOverlayMap) {
+      existingSettings.m_bOverlayMap = false;
+      changedFormats.push_back({i, 4});  // FORMAT_OVERLAY_MAP
+    }
+    if (newSettings.m_bParticles && existingSettings.m_bParticles) {
+      existingSettings.m_bParticles = false;
+      changedFormats.push_back({i, 5});  // FORMAT_PARTICLES
     }
   }
-  m_gparent.SetFactoryOptions();  // Reload the visibility options
+
+  m_gparent.SetFactoryOptions();
+
+  // Notify external GUI if any formats changed
+  if (!changedFormats.empty() && m_gparent.pPlugIn && m_gparent.pPlugIn->GetGribAPI()) {
+    m_gparent.pPlugIn->GetGribAPI()->NotifyFormatStateChanged(changedFormats);
+  }
 }
 
 void CursorData::AddTrackingControl(wxControl *ctrl1, wxControl *ctrl2,
@@ -429,27 +450,35 @@ void CursorData::UpdateTrackingControls(void) {
   }
 
   //    Update the Sig Wave Height
-  const auto& waveVal = m_gparent.GetFormattedWaveValueAtPoint(
-      m_cursor_lon, m_cursor_lat, m_DialogStyle);
-  
-  if (waveVal.valid) {
-    wxString waveDisplay = waveVal.heightStr;
-    
-    if (waveVal.periodValid) {
-      if (m_DialogStyle == SEPARATED_VERTICAL)
-        m_tcWavePeriode->SetValue(waveVal.periodStr);
-      else
-        waveDisplay.Append(_T(" - ")).Append(waveVal.periodStr);
-    } else {
-      m_tcWavePeriode->SetValue(_("N/A"));
-    }
-    
-    m_tcWaveHeight->SetValue(waveDisplay);
-  } else {
-    m_tcWaveHeight->SetValue(_("N/A"));
-    m_tcWavePeriode->SetValue(_("N/A"));
-  }
+  if (RecordArray[Idx_HTSIGW]) {
+    double height = RecordArray[Idx_HTSIGW]->getInterpolatedValue(
+        m_cursor_lon, m_cursor_lat, true);
 
+    if (height != GRIB_NOTDEF) {
+      height = m_gparent.m_OverlaySettings.CalibrateValue(
+          GribOverlaySettings::WAVE, height);
+      wxString w(wxString::Format(
+          _T("%4.1f ") + m_gparent.m_OverlaySettings.GetUnitSymbol(
+                             GribOverlaySettings::WAVE),
+          height));
+      if (RecordArray[Idx_WVPER]) {
+        double period = RecordArray[Idx_WVPER]->getInterpolatedValue(
+            m_cursor_lon, m_cursor_lat, true);
+        if (period != GRIB_NOTDEF) {
+          if (m_DialogStyle == SEPARATED_VERTICAL)
+            m_tcWavePeriode->SetValue(
+                wxString::Format(_T("%01ds"), (int)round(period)));
+          else
+            w.Append(wxString::Format(_T(" - %01ds"), (int)round(period)));
+        } else
+          m_tcWavePeriode->SetValue(_("N/A"));
+      } else
+        m_tcWavePeriode->SetValue(_("N/A"));
+
+      m_tcWaveHeight->SetValue(w);
+    } else
+      m_tcWaveHeight->SetValue(_("N/A"));
+  }
   // Update the Wave direction
   if (RecordArray[Idx_WVDIR]) {
     double direction = RecordArray[Idx_WVDIR]->getInterpolatedValue(

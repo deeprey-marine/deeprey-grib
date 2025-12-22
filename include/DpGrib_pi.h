@@ -172,6 +172,8 @@ public:
   // Internal methods for API access
   void Internal_SetVisible(bool visible);
   bool Internal_IsVisible() const;
+  void Internal_SetOverlayTransparency(int transparency);
+  int Internal_GetOverlayTransparency() const;
   void Internal_StartWorldDownload(double latMin, double lonMin, double latMax,
                                    double lonMax, int durationHours);
   bool Internal_IsDownloading() const;
@@ -182,14 +184,39 @@ public:
   int Internal_GetTimeStepCount() const;
   int Internal_GetCurrentTimeIndex() const;
   bool Internal_SetTimeIndex(int index);
+  bool Internal_SetDisplayToCurrentTime();
   wxString Internal_GetCurrentTimeString() const;
   wxString Internal_GetTimeString(int index) const;
+  wxString Internal_GetCurrentTimeStringLocal() const;
+  wxString Internal_GetTimeStringLocal(int index) const;
   
   // Layer management
   bool Internal_SetLayerVisible(int layerId, bool visible);
   bool Internal_IsLayerVisible(int layerId) const;
   bool Internal_IsLayerAvailable(int layerId) const;
   wxString Internal_GetLayerValueAtPoint(int layerId, double latitude, double longitude) const;
+
+  // Visualization feature toggles
+  void Internal_SetBarbedArrowsVisible(int layerId, bool visible);
+  void Internal_SetIsoBarsVisible(int layerId, bool visible);
+  void Internal_SetNumbersVisible(int layerId, bool visible);
+  void Internal_SetOverlayMapVisible(int layerId, bool visible);
+  void Internal_SetDirectionArrowsVisible(int layerId, bool visible);
+  void Internal_SetParticlesVisible(int layerId, bool visible);
+
+  // Visualization state getters
+  bool Internal_IsBarbedArrowsVisible(int layerId) const;
+  bool Internal_IsIsoBarsVisible(int layerId) const;
+  bool Internal_AreNumbersVisible(int layerId) const;
+  bool Internal_IsOverlayMapVisible(int layerId) const;
+  bool Internal_AreDirectionArrowsVisible(int layerId) const;
+  bool Internal_AreParticlesVisible(int layerId) const;
+
+  // Additional visualization settings
+  void Internal_SetIsoBarVisibility(int layerId, bool visible);
+  bool Internal_GetIsoBarVisibility(int layerId) const;
+  void Internal_SetAbbreviatedNumbers(int layerId, bool abbreviated);
+  bool Internal_AreNumbersAbbreviated(int layerId) const;
 
   int m_MenuItem;
   bool m_DialogStyleChanged;
@@ -206,6 +233,7 @@ private:
   bool LoadConfig(void);
   bool SaveConfig(void);
   void UpdateApiPtr(void);
+  void SyncUnitsToGribSettings(void);
 
   bool DoRenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                          int canvasIndex);

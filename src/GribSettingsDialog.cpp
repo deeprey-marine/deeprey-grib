@@ -29,8 +29,8 @@ static const wxString units0_names[] = {
     _("Knots"), _("m/s"), _("mph"), _("km/h"), _("Beaufort"), wxEmptyString};
 static const wxString units1_names[] = {_("MilliBars"), _("mmHG"), _("inHG"),
                                         wxEmptyString};
-static const wxString units2_names[] = {_("Meters"), _("Feet"), wxEmptyString};
-static const wxString units3_names[] = {_("Celsius"), _("Fahrenheit"),
+static const wxString units2_names[] = {_("Meters"), _("Feet"), _("Fathoms"), wxEmptyString};
+static const wxString units3_names[] = {_("Celsius"), _("Fahrenheit"), _("Kelvin"),
                                         wxEmptyString};
 static const wxString units4_names[] = {_("Millimeters"), _("Inches"),
                                         wxEmptyString};
@@ -208,7 +208,7 @@ void GribOverlaySettings::Read() {
     pConf->Read(Name + _T ( "Display Isobars" ), &Settings[i].m_bIsoBars,
                 i == PRESSURE);
     pConf->Read(Name + _T ( "Abbreviated Isobars Numbers" ),
-                &Settings[i].m_bAbbrIsoBarsNumbers, i == PRESSURE);
+                &Settings[i].m_bAbbrIsoBarsNumbers, false);
 
     double defspacing[SETTINGS_COUNT] = {4, 4, 4, 0, 0, 0, 0, 2, 2, 100};
     pConf->Read(Name + _T ( "IsoBarSpacing" ), &Settings[i].m_iIsoBarSpacing,
@@ -217,7 +217,7 @@ void GribOverlaySettings::Read() {
                 &Settings[i].m_iIsoBarVisibility, i == PRESSURE);
 
     pConf->Read(Name + _T ( "DirectionArrows" ),
-                &Settings[i].m_bDirectionArrows, i == CURRENT || i == WAVE);
+                &Settings[i].m_bDirectionArrows, false);
     double defform[SETTINGS_COUNT] = {0, 0, 0, 0, 1, 0, 0, 0, 0, 0};
     pConf->Read(Name + _T ( "DirectionArrowForm" ),
                 &Settings[i].m_iDirectionArrowForm, defform[i]);
@@ -229,7 +229,7 @@ void GribOverlaySettings::Read() {
                 &Settings[i].m_iDirArrSpacing, 50);
 
     pConf->Read(Name + _T ( "OverlayMap" ), &Settings[i].m_bOverlayMap,
-                i != WIND && i != PRESSURE);
+                i == WIND);
     int defcolor[SETTINGS_COUNT] = {1, 1, 0, 0, 6, 4, 5, 2, 3, 7};
     pConf->Read(Name + _T ( "OverlayMapColors" ),
                 &Settings[i].m_iOverlayMapColors, defcolor[i]);
@@ -368,6 +368,8 @@ double GribOverlaySettings::CalibrationOffset(int settings) {
           return -273.15;
         case FAHRENHEIT:
           return -273.15 + 32 * 5 / 9.0;
+        case KELVIN:
+          return 0;
       }
       break;
   }
@@ -409,6 +411,8 @@ double GribOverlaySettings::CalibrationFactor(int settings, double input,
           return 1;
         case FEET:
           return 3.28;
+        case FATHOMS:
+          return 0.546807;
       }
       break;
     case 3:
@@ -417,6 +421,8 @@ double GribOverlaySettings::CalibrationFactor(int settings, double input,
           return 1;
         case FAHRENHEIT:
           return 9. / 5;
+        case KELVIN:
+          return 1;
       }
       break;
     case 4:
@@ -536,6 +542,8 @@ wxString GribOverlaySettings::GetUnitSymbol(int settings) {
           return _T("m");
         case FEET:
           return _T("ft");
+        case FATHOMS:
+          return _T("ftm");
       }
       break;
     case 3:
@@ -544,6 +552,8 @@ wxString GribOverlaySettings::GetUnitSymbol(int settings) {
           return _T("\u00B0C");
         case FAHRENHEIT:
           return _T("\u00B0F");
+        case KELVIN:
+          return _T("K");
       }
       break;
     case 4:
@@ -726,6 +736,11 @@ GribSettingsDialog::GribSettingsDialog(GRIBUICtrlBar &parent,
   m_cDataType->SetSelection(m_lastdatatype);
   PopulateUnits(m_lastdatatype);
   ReadDataTypeSettings(m_lastdatatype);
+
+  // Disable unit controls - units are now managed globally
+  m_cDataUnits->Disable();
+  m_cDataUnits->SetToolTip(_("GRIB units are now managed in the global application settings (Settings -> Display -> Units)."));
+
   m_sButtonApply->SetLabel(_("Apply"));
 
   DimeWindow(this);  // apply global colours scheme

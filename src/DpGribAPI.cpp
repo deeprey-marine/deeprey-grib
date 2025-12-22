@@ -29,6 +29,7 @@ DpGribAPI::~DpGribAPI() {
     // Clear all callbacks on destruction
     m_stateCallbacks.clear();
     m_dataChangedCallbacks.clear();
+    m_layerStateChangedCallbacks.clear();
     m_progressCallbacks.clear();
     m_cursorCallbacks.clear();
 }
@@ -80,6 +81,19 @@ bool DpGribAPI::IsVisible() const {
     return false;
 }
 
+void DpGribAPI::SetOverlayTransparency(int transparency) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetOverlayTransparency(transparency);
+    }
+}
+
+int DpGribAPI::GetOverlayTransparency() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetOverlayTransparency();
+    }
+    return 50; // Default to 50% opaque
+}
+
 // =============================================================================
 // Callback Management
 // =============================================================================
@@ -122,6 +136,56 @@ void DpGribAPI::NotifyDataChanged() {
     for (auto& [id, callback] : callbacks) {
         if (callback) {
             callback();
+        }
+    }
+}
+
+// =============================================================================
+// Layer State Changed Callbacks
+// =============================================================================
+
+uint64_t DpGribAPI::AddLayerStateChangedCallback(LayerStateChangedCallback callback) {
+    uint64_t id = m_nextCallbackId++;
+    m_layerStateChangedCallbacks[id] = std::move(callback);
+    return id;
+}
+
+void DpGribAPI::RemoveLayerStateChangedCallback(uint64_t callbackId) {
+    m_layerStateChangedCallbacks.erase(callbackId);
+}
+
+void DpGribAPI::NotifyLayerStateChanged(const std::vector<int>& disabledLayerIds) {
+    // Call all registered layer state changed callbacks
+    // Make a copy of the callback map in case a callback modifies it
+    auto callbacks = m_layerStateChangedCallbacks;
+    for (auto& [id, callback] : callbacks) {
+        if (callback) {
+            callback(disabledLayerIds);
+        }
+    }
+}
+
+// =============================================================================
+// Format State Changed Callbacks
+// =============================================================================
+
+uint64_t DpGribAPI::AddFormatStateChangedCallback(FormatStateChangedCallback callback) {
+    uint64_t callbackId = m_nextCallbackId++;
+    m_formatStateChangedCallbacks[callbackId] = std::move(callback);
+    return callbackId;
+}
+
+void DpGribAPI::RemoveFormatStateChangedCallback(uint64_t callbackId) {
+    m_formatStateChangedCallbacks.erase(callbackId);
+}
+
+void DpGribAPI::NotifyFormatStateChanged(const std::vector<std::pair<int, int>>& changedFormats) {
+    // Call all registered format state changed callbacks
+    // Make a copy of the callback map in case a callback modifies it
+    auto callbacks = m_formatStateChangedCallbacks;
+    for (auto& [id, callback] : callbacks) {
+        if (callback) {
+            callback(changedFormats);
         }
     }
 }
@@ -188,6 +252,13 @@ bool DpGribAPI::SetTimeIndex(int index) {
     return false;
 }
 
+bool DpGribAPI::SetDisplayToCurrentTime() {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_SetDisplayToCurrentTime();
+    }
+    return false;
+}
+
 wxString DpGribAPI::GetCurrentTimeString() const {
     if (m_plugin) {
         return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetCurrentTimeString();
@@ -198,6 +269,20 @@ wxString DpGribAPI::GetCurrentTimeString() const {
 wxString DpGribAPI::GetTimeString(int index) const {
     if (m_plugin) {
         return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetTimeString(index);
+    }
+    return wxEmptyString;
+}
+
+wxString DpGribAPI::GetCurrentTimeStringLocal() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetCurrentTimeStringLocal();
+    }
+    return wxEmptyString;
+}
+
+wxString DpGribAPI::GetTimeStringLocal(int index) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetTimeStringLocal(index);
     }
     return wxEmptyString;
 }
@@ -290,6 +375,114 @@ void DpGribAPI::NotifyDownloadProgress(long transferred, long total,
             callback(transferred, total, completed, success);
         }
     }
+}
+
+// =============================================================================
+// Visualization Feature Toggles
+// =============================================================================
+
+void DpGribAPI::SetBarbedArrowsVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetBarbedArrowsVisible(layerId, visible);
+    }
+}
+
+void DpGribAPI::SetIsoBarsVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetIsoBarsVisible(layerId, visible);
+    }
+}
+
+void DpGribAPI::SetNumbersVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetNumbersVisible(layerId, visible);
+    }
+}
+
+void DpGribAPI::SetOverlayMapVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetOverlayMapVisible(layerId, visible);
+    }
+}
+
+void DpGribAPI::SetDirectionArrowsVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetDirectionArrowsVisible(layerId, visible);
+    }
+}
+
+void DpGribAPI::SetParticlesVisible(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetParticlesVisible(layerId, visible);
+    }
+}
+
+bool DpGribAPI::IsBarbedArrowsVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsBarbedArrowsVisible(layerId);
+    }
+    return false;
+}
+
+bool DpGribAPI::IsIsoBarsVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsIsoBarsVisible(layerId);
+    }
+    return false;
+}
+
+bool DpGribAPI::AreNumbersVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_AreNumbersVisible(layerId);
+    }
+    return false;
+}
+
+bool DpGribAPI::IsOverlayMapVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsOverlayMapVisible(layerId);
+    }
+    return false;
+}
+
+bool DpGribAPI::AreDirectionArrowsVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_AreDirectionArrowsVisible(layerId);
+    }
+    return false;
+}
+
+bool DpGribAPI::AreParticlesVisible(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_AreParticlesVisible(layerId);
+    }
+    return false;
+}
+
+void DpGribAPI::SetIsoBarVisibility(int layerId, bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetIsoBarVisibility(layerId, visible);
+    }
+}
+
+bool DpGribAPI::GetIsoBarVisibility(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetIsoBarVisibility(layerId);
+    }
+    return false;
+}
+
+void DpGribAPI::SetAbbreviatedNumbers(int layerId, bool abbreviated) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetAbbreviatedNumbers(layerId, abbreviated);
+    }
+}
+
+bool DpGribAPI::AreNumbersAbbreviated(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_AreNumbersAbbreviated(layerId);
+    }
+    return false;
 }
 
 } // namespace DpGrib
