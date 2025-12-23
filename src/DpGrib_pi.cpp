@@ -1053,7 +1053,7 @@ void DpGrib_pi::Internal_SetGlobalSymbolSpacing(int pixels) {
 
   // 3. Apply to WIND_GUST (Barbs only)
   overlay.Settings[GribOverlaySettings::WIND_GUST].m_iBarbArrSpacing = pixels;
-  overlay.Settings[GribOverlaySettings::WIND_GUST].m_bBarbArrFixSpac = true;
+  overlay.Settings[GribOverlaySettings::WIND_GUST].m_bBarbArrFixSpac = false;  // Changed to false for consistency
 
   // 4. Apply to WAVES (Arrows only)
   overlay.Settings[GribOverlaySettings::WAVE].m_iDirArrSpacing = pixels;
@@ -1069,9 +1069,13 @@ void DpGrib_pi::Internal_SetGlobalSymbolSpacing(int pixels) {
   m_pGribCtrlBar->SetFactoryOptions(); 
   RequestRefresh(m_parent_window);
 }
-//----------------------------------------------------------------------------------------------------------
-//          Timeline Management Implementation
-//----------------------------------------------------------------------------------------------------------
+
+int DpGrib_pi::Internal_GetGlobalSymbolSpacing() const {
+  if (!m_pGribCtrlBar) return 50;  // Default spacing
+  
+  // Return the spacing from WIND barbed arrows (they should all be the same)
+  return m_pGribCtrlBar->m_OverlaySettings.Settings[GribOverlaySettings::WIND].m_iBarbArrSpacing;
+}
 int DpGrib_pi::Internal_GetTimeStepCount() const {
   if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
     return 0;

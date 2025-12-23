@@ -188,6 +188,7 @@ public:
 
   // Global symbol spacing control
   void Internal_SetGlobalSymbolSpacing(int pixels);
+  int Internal_GetGlobalSymbolSpacing() const;
   
   // Timeline management
   int Internal_GetTimeStepCount() const;

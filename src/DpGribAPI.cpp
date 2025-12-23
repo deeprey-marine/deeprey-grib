@@ -327,6 +327,13 @@ void DpGribAPI::SetGlobalSymbolSpacing(int pixels) {
     }
 }
 
+int DpGribAPI::GetGlobalSymbolSpacing() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetGlobalSymbolSpacing();
+    }
+    return 50;  // Default spacing
+}
+
 // =============================================================================
 // Layer / Data Field Management
 // =============================================================================
