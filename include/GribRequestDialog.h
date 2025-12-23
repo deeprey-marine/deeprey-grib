@@ -338,6 +338,17 @@ private:
   // Calculate estimated size of GRIB file
   void UpdateGribSizeEstimate();
 
+  /**
+   * Delete old GRIB files from the grib directory after successful download.
+   *
+   * Removes all .grib, .grb, .grb2 files from the grib directory except
+   * the specified file that was just downloaded. Only call this after
+   * confirming the new file loaded successfully.
+   *
+   * @param keepFile Full path to the newly downloaded file to preserve
+   */
+  void CleanupOldGribFiles(const wxString& keepFile);
+
   // Index of currently selected XyGrib atmospheric model
   int m_selectedAtmModelIndex;
   // Index of currently selected XyGrib wave model

@@ -31,6 +31,7 @@
 #include "GribRequestDialog.h"
 #include "GribOverlayFactory.h"
 #include <wx/wfstream.h>
+#include <wx/dir.h>
 #include "DpGrib_pi.h"
 
 extern DpGrib_pi *g_pi;
@@ -681,6 +682,9 @@ void GribRequestSetting::OnWorldDownload(wxCommandEvent &event) {
       m_parent.m_file_names.Clear();
       m_parent.m_file_names.Add(path);
       m_parent.OpenFile();
+      if (m_parent.m_bGRIBActiveFile && m_parent.m_bGRIBActiveFile->IsOK()) {
+        CleanupOldGribFiles(path);
+      }
       if (m_parent.pPlugIn) {
         if (m_parent.pPlugIn->m_bZoomToCenterAtInit) m_parent.DoZoomToCenter();
       }
@@ -758,17 +762,19 @@ void GribRequestSetting::StartWorldDownloadFromAPI(double latMin, double lonMin,
         m_parent.m_grib_dir = fn.GetPath();
         m_parent.m_file_names.Clear();
         m_parent.m_file_names.Add(path);
-        
+
         m_parent.OpenFile(); // This parses and displays the GRIB
-        
+        if (m_parent.m_bGRIBActiveFile && m_parent.m_bGRIBActiveFile->IsOK()) {
+          CleanupOldGribFiles(path);
+        }
+
         if (m_parent.pPlugIn) {
             if (m_parent.pPlugIn->m_bZoomToCenterAtInit) m_parent.DoZoomToCenter();
         }
-        
+
         m_parent.SetDialogsStyleSizePosition(true);
-        
-        SaveConfig(); 
-        
+
+        SaveConfig();
 
     } else {
         wxLogMessage("deeprey_grib_pi: Download failed.");
@@ -1108,9 +1114,11 @@ void GribRequestSetting::OnDownloadLocal(wxCommandEvent &event) {
       wxFileName fn(path);
       m_parent.m_grib_dir = fn.GetPath();
       m_parent.m_file_names.Clear();
-      m_parent.m_file_names.Add(
-          path);  //("/home/nohal/Downloads/Cherbourg_4km_WRF_WAM_240228-12.grb.bz2");
+      m_parent.m_file_names.Add(path);
       m_parent.OpenFile();
+      if (m_parent.m_bGRIBActiveFile && m_parent.m_bGRIBActiveFile->IsOK()) {
+        CleanupOldGribFiles(path);
+      }
       if (m_parent.pPlugIn) {
         if (m_parent.pPlugIn->m_bZoomToCenterAtInit) m_parent.DoZoomToCenter();
       }
@@ -2348,13 +2356,16 @@ void GribRequestSetting::OnXyGribDownloadButton(wxCommandEvent &event) {
 
   if (!m_canceled) {
     if (m_bTransferSuccess) {
-      // Transfer successfull : switch to GRIB display on chart
+      // Transfer successful: switch to GRIB display on chart
       m_xygribPanel->m_status_text->SetLabelText(_("Download complete"));
       wxFileName fn(path);
       m_parent.m_grib_dir = fn.GetPath();
       m_parent.m_file_names.Clear();
       m_parent.m_file_names.Add(path);
       m_parent.OpenFile();
+      if (m_parent.m_bGRIBActiveFile && m_parent.m_bGRIBActiveFile->IsOK()) {
+        CleanupOldGribFiles(path);
+      }
       if (m_parent.pPlugIn) {
         if (m_parent.pPlugIn->m_bZoomToCenterAtInit) m_parent.DoZoomToCenter();
       }
@@ -2362,7 +2373,7 @@ void GribRequestSetting::OnXyGribDownloadButton(wxCommandEvent &event) {
       SaveConfig();
       Close();
     } else {
-      // Download failed : report error to GUI
+      // Download failed: report error to GUI
       m_xygribPanel->m_status_text->SetLabelText(_("Download failed"));
     }
   }
@@ -2917,4 +2928,38 @@ double GribRequestSetting::GetMaxLon() const {
     return m_spMaxLon->GetValue();
   }
   return m_VpFocus->lon_max;
+}
+
+void GribRequestSetting::CleanupOldGribFiles(const wxString& keepFile) {
+  wxString gribDir = m_parent.GetGribDir();
+  if (gribDir.IsEmpty() || !wxDirExists(gribDir)) {
+    return;
+  }
+
+  wxDir dir(gribDir);
+  if (!dir.IsOpened()) {
+    return;
+  }
+
+  wxFileName keepFn(keepFile);
+  wxString keepName = keepFn.GetFullName();
+
+  wxString filename;
+  bool cont = dir.GetFirst(&filename, wxEmptyString, wxDIR_FILES);
+  wxArrayString filesToDelete;
+
+  while (cont) {
+    wxString lowerName = filename.Lower();
+    if (lowerName.EndsWith(".grib") || lowerName.EndsWith(".grb") ||
+        lowerName.EndsWith(".grb2")) {
+      if (filename != keepName) {
+        filesToDelete.Add(gribDir + wxFileName::GetPathSeparator() + filename);
+      }
+    }
+    cont = dir.GetNext(&filename);
+  }
+
+  for (size_t i = 0; i < filesToDelete.GetCount(); i++) {
+    wxRemoveFile(filesToDelete[i]);
+  }
 }
