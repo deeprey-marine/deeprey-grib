@@ -300,14 +300,6 @@ public:
                        .Append("grib");
 
       if (!wxDirExists(m_grib_dir)) wxMkdir(m_grib_dir);
-
-      wxString dir_spec;
-      int response = PlatformDirSelectorDialog(
-          this, &dir_spec, _("Choose GRIB File Directory"), m_grib_dir);
-
-      if (response == wxID_OK) {
-        m_grib_dir = (dir_spec);
-      }
     }
     return m_grib_dir;
   }
