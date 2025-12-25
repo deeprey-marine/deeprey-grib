@@ -119,6 +119,9 @@ int DpGrib_pi::Init(void) {
   //    And load the configuration items
   LoadConfig();
 
+  // Force headless mode: disable GRIB icon
+  m_bGRIBShowIcon = false;
+
   // Initialize the unit manager with OpenCPN config
   DpUnitManager::Instance().Init(m_pconfig);
 
@@ -217,6 +220,53 @@ void DpGrib_pi::LateInit(void) {
   // If deeprey-gui loads later, it will send a discovery request and we respond.
   UpdateApiPtr();
   wxLogMessage("deeprey_grib_pi: LateInit - API announced to deepreygui");
+
+  // Initialize GRIB control bar silently (hidden) for headless mode
+  if (!m_pGribCtrlBar) {
+    double scale_factor =
+        GetOCPNGUIToolScaleFactor_PlugIn() * OCPN_GetWinDIPScaleFactor();
+#ifdef __WXMSW__
+    scale_factor *= m_GribIconsScaleFactor;
+#endif
+
+    long style = m_DialogStyle == ATTACHED_HAS_CAPTION
+                     ? wxCAPTION | wxCLOSE_BOX | wxSYSTEM_MENU
+                     : wxBORDER_NONE | wxSYSTEM_MENU;
+#ifdef __WXOSX__
+    style |= wxSTAY_ON_TOP;
+#endif
+    m_pGribCtrlBar = new GRIBUICtrlBar(m_parent_window, wxID_ANY, wxEmptyString,
+                                       wxDefaultPosition, wxDefaultSize, style,
+                                       this, scale_factor);
+    m_pGribCtrlBar->SetScaledBitmap(scale_factor);
+
+    wxMenu *dummy = new wxMenu(_T("Plugin"));
+    wxMenuItem *table =
+        new wxMenuItem(dummy, wxID_ANY, wxString(_("Weather table")),
+                       wxEmptyString, wxITEM_NORMAL);
+    /* Menu font do not work properly for MSW (wxWidgets 3.2.1)
+    #ifdef __WXMSW__
+        wxFont *qFont = OCPNGetFont(_("Menu"));
+        table->SetFont(*qFont);
+    #endif
+    */
+    m_MenuItem = AddCanvasContextMenuItem(table, this);
+    SetCanvasContextMenuItemViz(m_MenuItem, false);
+
+    // Create the drawing factory
+    m_pGRIBOverlayFactory = new GRIBOverlayFactory(*m_pGribCtrlBar);
+    m_pGRIBOverlayFactory->SetMessageFont();
+    m_pGRIBOverlayFactory->SetParentSize(m_display_width, m_display_height);
+    m_pGRIBOverlayFactory->SetSettings(m_bGRIBUseHiDef, m_bGRIBUseGradualColors,
+                                       m_bDrawBarbedArrowHead);
+
+    m_pGribCtrlBar->OpenFile(m_bLoadLastOpenFile == 0);
+
+    // Sync units with OpenCPN settings on first open
+    SyncUnitsToGribSettings();
+
+    m_GUIScaleFactor = scale_factor;
+  }
 }
 
 int DpGrib_pi::GetAPIVersionMajor() { return MY_API_VERSION_MAJOR; }
@@ -462,49 +512,13 @@ void DpGrib_pi::OnToolbarToolCallback(int id) {
 #endif
   if (scale_factor != m_GUIScaleFactor) starting = true;
 
-  if (!m_pGribCtrlBar) {
-    starting = true;
-    long style = m_DialogStyle == ATTACHED_HAS_CAPTION
-                     ? wxCAPTION | wxCLOSE_BOX | wxSYSTEM_MENU
-                     : wxBORDER_NONE | wxSYSTEM_MENU;
-#ifdef __WXOSX__
-    style |= wxSTAY_ON_TOP;
-#endif
-    m_pGribCtrlBar = new GRIBUICtrlBar(m_parent_window, wxID_ANY, wxEmptyString,
-                                       wxDefaultPosition, wxDefaultSize, style,
-                                       this, scale_factor);
-    m_pGribCtrlBar->SetScaledBitmap(scale_factor);
-
-    wxMenu *dummy = new wxMenu(_T("Plugin"));
-    wxMenuItem *table =
-        new wxMenuItem(dummy, wxID_ANY, wxString(_("Weather table")),
-                       wxEmptyString, wxITEM_NORMAL);
-    /* Menu font do not work properly for MSW (wxWidgets 3.2.1)
-    #ifdef __WXMSW__
-        wxFont *qFont = OCPNGetFont(_("Menu"));
-        table->SetFont(*qFont);
-    #endif
-    */
-    m_MenuItem = AddCanvasContextMenuItem(table, this);
-    SetCanvasContextMenuItemViz(m_MenuItem, false);
-
-    // Create the drawing factory
-    m_pGRIBOverlayFactory = new GRIBOverlayFactory(*m_pGribCtrlBar);
-    m_pGRIBOverlayFactory->SetMessageFont();
-    m_pGRIBOverlayFactory->SetParentSize(m_display_width, m_display_height);
-    m_pGRIBOverlayFactory->SetSettings(m_bGRIBUseHiDef, m_bGRIBUseGradualColors,
-                                       m_bDrawBarbedArrowHead);
-
-    m_pGribCtrlBar->OpenFile(m_bLoadLastOpenFile == 0);
-
-    // Sync units with OpenCPN settings on first open
-    SyncUnitsToGribSettings();
-  }
+  // GRIB control bar is now created in LateInit() for headless mode
+  // No creation here
 
   // Toggle GRIB overlay display
   m_bShowGrib = !m_bShowGrib;
 
-  //    Toggle dialog?
+  //    Toggle dialog? (Removed for headless mode - no dialog shown)
   if (m_bShowGrib) {
     // A new file could have been added since grib plugin opened
     if (!starting && m_bLoadLastOpenFile == 0) {
@@ -531,7 +545,7 @@ void DpGrib_pi::OnToolbarToolCallback(int id) {
       m_pGribCtrlBar->Refresh();
 #endif
     }
-    m_pGribCtrlBar->Show();
+    // Removed: m_pGribCtrlBar->Show(); // Headless mode - keep hidden
     if (m_pGribCtrlBar->m_bGRIBActiveFile) {
       if (m_pGribCtrlBar->m_bGRIBActiveFile->IsOK()) {
         ArrayOfGribRecordSets *rsa =
@@ -546,7 +560,7 @@ void DpGrib_pi::OnToolbarToolCallback(int id) {
     }
     // Toggle is handled by the CtrlBar but we must keep plugin manager b_toggle
     // updated to actual status to ensure correct status upon CtrlBar rebuild
-    SetToolbarItemState(m_leftclick_tool_id, m_bShowGrib);
+    // Removed: SetToolbarItemState(m_leftclick_tool_id, m_bShowGrib); // No icon in headless
 
     // Do an automatic "zoom-to-center" on the overlay canvas if set in
     // Preferences
@@ -555,8 +569,10 @@ void DpGrib_pi::OnToolbarToolCallback(int id) {
     }
 
     RequestRefresh(m_parent_window);  // refresh main window
-  } else
-    m_pGribCtrlBar->Close();
+  } else {
+    // Removed: m_pGribCtrlBar->Close(); // Headless mode - keep hidden
+    RequestRefresh(m_parent_window);  // refresh main window
+  }
 }
 
 void DpGrib_pi::OnGribCtrlBarClose() {
@@ -589,7 +605,7 @@ bool DpGrib_pi::RenderOverlay(wxDC &dc, PlugIn_ViewPort *vp) { return false; }
 bool DpGrib_pi::DoRenderOverlay(wxDC &dc, PlugIn_ViewPort *vp, int canvasIndex) {
   if (!m_bShowGrib) return true;
 
-  if (!m_pGribCtrlBar || !m_pGribCtrlBar->IsShown() || !m_pGRIBOverlayFactory)
+  if (!m_pGribCtrlBar || !m_pGRIBOverlayFactory)
     return false;
 
   m_pGRIBOverlayFactory->RenderGribOverlay(dc, vp);
@@ -617,7 +633,7 @@ bool DpGrib_pi::DoRenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                                 int canvasIndex) {
   if (!m_bShowGrib) return true;
 
-  if (!m_pGribCtrlBar || !m_pGribCtrlBar->IsShown() || !m_pGRIBOverlayFactory)
+  if (!m_pGribCtrlBar || !m_pGRIBOverlayFactory)
     return false;
 
   m_pGRIBOverlayFactory->RenderGLGribOverlay(pcontext, vp);
