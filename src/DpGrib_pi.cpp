@@ -119,6 +119,9 @@ int DpGrib_pi::Init(void) {
   //    And load the configuration items
   LoadConfig();
 
+  // Force headless mode: disable GRIB icon
+  m_bGRIBShowIcon = false;
+
   // Initialize the unit manager with OpenCPN config
   DpUnitManager::Instance().Init(m_pconfig);
 
@@ -504,7 +507,7 @@ void DpGrib_pi::OnToolbarToolCallback(int id) {
   // Toggle GRIB overlay display
   m_bShowGrib = !m_bShowGrib;
 
-  //    Toggle dialog?
+  //    Toggle overlay visibility (headless mode - no dialog shown)
   if (m_bShowGrib) {
     // A new file could have been added since grib plugin opened
     if (!starting && m_bLoadLastOpenFile == 0) {
@@ -520,33 +523,25 @@ void DpGrib_pi::OnToolbarToolCallback(int id) {
       m_pGribCtrlBar->SetScaledBitmap(m_GUIScaleFactor);
       m_pGribCtrlBar->SetDialogsStyleSizePosition(true);
       m_pGribCtrlBar->Refresh();
-    } else {
-      MoveDialog(m_pGribCtrlBar, GetCtrlBarXY());
-      if (m_DialogStyle >> 1 == SEPARATED) {
-        MoveDialog(m_pGribCtrlBar->GetCDataDialog(), GetCursorDataXY());
-        m_pGribCtrlBar->GetCDataDialog()->Show(m_pGribCtrlBar->m_CDataIsShown);
-      }
-#ifdef __OCPN__ANDROID__
-      m_pGribCtrlBar->SetDialogsStyleSizePosition(true);
-      m_pGribCtrlBar->Refresh();
-#endif
     }
-    m_pGribCtrlBar->Show();
+    // Headless mode: do NOT show control bar dialog
+    // m_pGribCtrlBar->Show();
+
     if (m_pGribCtrlBar->m_bGRIBActiveFile) {
       if (m_pGribCtrlBar->m_bGRIBActiveFile->IsOK()) {
         ArrayOfGribRecordSets *rsa =
             m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
-        if (rsa->GetCount() > 1) {
-          SetCanvasContextMenuItemViz(m_MenuItem, true);
-        }
-        if (rsa->GetCount() >= 1) {  // XXX Should be only on Show
+        // Headless mode: keep context menu hidden
+        // if (rsa->GetCount() > 1) {
+        //   SetCanvasContextMenuItemViz(m_MenuItem, true);
+        // }
+        if (rsa->GetCount() >= 1) {
           SendTimelineMessage(m_pGribCtrlBar->TimelineTime());
         }
       }
     }
-    // Toggle is handled by the CtrlBar but we must keep plugin manager b_toggle
-    // updated to actual status to ensure correct status upon CtrlBar rebuild
-    SetToolbarItemState(m_leftclick_tool_id, m_bShowGrib);
+    // Headless mode: no toolbar icon to update
+    // SetToolbarItemState(m_leftclick_tool_id, m_bShowGrib);
 
     // Do an automatic "zoom-to-center" on the overlay canvas if set in
     // Preferences
@@ -555,13 +550,17 @@ void DpGrib_pi::OnToolbarToolCallback(int id) {
     }
 
     RequestRefresh(m_parent_window);  // refresh main window
-  } else
-    m_pGribCtrlBar->Close();
+  } else {
+    // Headless mode: don't close dialog, just stop rendering overlay
+    // m_pGribCtrlBar->Close();
+    RequestRefresh(m_parent_window);  // refresh main window
+  }
 }
 
 void DpGrib_pi::OnGribCtrlBarClose() {
   m_bShowGrib = false;
-  SetToolbarItemState(m_leftclick_tool_id, m_bShowGrib);
+  // Headless mode: no toolbar icon to update
+  // SetToolbarItemState(m_leftclick_tool_id, m_bShowGrib);
 
   m_pGribCtrlBar->Hide();
 
@@ -589,7 +588,8 @@ bool DpGrib_pi::RenderOverlay(wxDC &dc, PlugIn_ViewPort *vp) { return false; }
 bool DpGrib_pi::DoRenderOverlay(wxDC &dc, PlugIn_ViewPort *vp, int canvasIndex) {
   if (!m_bShowGrib) return true;
 
-  if (!m_pGribCtrlBar || !m_pGribCtrlBar->IsShown() || !m_pGRIBOverlayFactory)
+  // Headless mode: render overlay even when control bar is hidden
+  if (!m_pGribCtrlBar || !m_pGRIBOverlayFactory)
     return false;
 
   m_pGRIBOverlayFactory->RenderGribOverlay(dc, vp);
@@ -617,7 +617,8 @@ bool DpGrib_pi::DoRenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                                 int canvasIndex) {
   if (!m_bShowGrib) return true;
 
-  if (!m_pGribCtrlBar || !m_pGribCtrlBar->IsShown() || !m_pGRIBOverlayFactory)
+  // Headless mode: render overlay even when control bar is hidden
+  if (!m_pGribCtrlBar || !m_pGRIBOverlayFactory)
     return false;
 
   m_pGRIBOverlayFactory->RenderGLGribOverlay(pcontext, vp);
