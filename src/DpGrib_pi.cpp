@@ -1781,3 +1781,335 @@ bool DpGrib_pi::Internal_AreNumbersAbbreviated(int layerId) const {
   const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   return settings.Settings[layerId].m_bAbbrIsoBarsNumbers;
 }
+
+//----------------------------------------------------------------------------------------------------------
+//          Meteogram Data Access Implementation
+//----------------------------------------------------------------------------------------------------------
+
+bool DpGrib_pi::Internal_HasActiveFile() const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return false;
+  }
+
+  if (!m_pGribCtrlBar->m_bGRIBActiveFile->IsOK()) {
+    return false;
+  }
+
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  return (rsa && rsa->GetCount() > 0);
+}
+
+wxDateTime DpGrib_pi::Internal_GetTimeAt(int index) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return wxDateTime();  // Invalid datetime
+  }
+
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return wxDateTime();
+
+  int count = rsa->GetCount();
+  if (index < 0 || index >= count) {
+    return wxDateTime();  // Invalid datetime
+  }
+
+  // m_Reference_Time is time_t (seconds since epoch, UTC)
+  time_t refTime = rsa->Item(index).m_Reference_Time;
+  wxDateTime dt;
+  dt.Set(refTime);
+  return dt;
+}
+
+bool DpGrib_pi::Internal_GetTimeRange(wxDateTime& startTime, wxDateTime& endTime) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return false;
+  }
+
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa || rsa->GetCount() == 0) {
+    return false;
+  }
+
+  int count = rsa->GetCount();
+
+  // Get first and last time
+  startTime = Internal_GetTimeAt(0);
+  endTime = Internal_GetTimeAt(count - 1);
+
+  return startTime.IsValid() && endTime.IsValid();
+}
+
+bool DpGrib_pi::Internal_GetScalarValueAt(int layerId, int timeIndex,
+                                           double latitude, double longitude,
+                                           double& value) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return false;
+  }
+
+  // Get the wxDateTime for the specified time index
+  wxDateTime time = Internal_GetTimeAt(timeIndex);
+  if (!time.IsValid()) {
+    return false;
+  }
+
+  // Map layer ID to record index
+  int idx = -1;
+  switch (layerId) {
+    case GribOverlaySettings::WIND_GUST:
+      idx = Idx_WIND_GUST;
+      break;
+    case GribOverlaySettings::PRESSURE:
+      idx = Idx_PRESSURE;
+      break;
+    case GribOverlaySettings::WAVE:
+      idx = Idx_HTSIGW;  // Wave height is scalar
+      break;
+    case GribOverlaySettings::PRECIPITATION:
+      idx = Idx_PRECIP_TOT;
+      break;
+    case GribOverlaySettings::CLOUD:
+      idx = Idx_CLOUD_TOT;
+      break;
+    case GribOverlaySettings::AIR_TEMPERATURE:
+      idx = Idx_AIR_TEMP;
+      break;
+    case GribOverlaySettings::SEA_TEMPERATURE:
+      idx = Idx_SEA_TEMP;
+      break;
+    case GribOverlaySettings::CAPE:
+      idx = Idx_CAPE;
+      break;
+    case GribOverlaySettings::COMP_REFL:
+      idx = Idx_COMP_REFL;
+      break;
+    default:
+      // Wind and Current are vector layers, not scalar
+      return false;
+  }
+
+  if (idx < 0) return false;
+
+  // Use the control bar's interpolation method
+  double rawValue = m_pGribCtrlBar->getTimeInterpolatedValue(idx, longitude, latitude, time);
+
+  // GRIB_NOTDEF indicates no data
+  if (rawValue == GRIB_NOTDEF) {
+    return false;
+  }
+
+  auto& um = DpUnitManager::Instance();
+
+  // Convert units based on layer type and system settings
+  switch (layerId) {
+    case GribOverlaySettings::WIND_GUST: {
+      // m/s to system wind speed unit (knots, km/h, mph, m/s)
+      double knots = rawValue * 3600.0 / 1852.0;
+      switch (um.GetWindSpeedUnit()) {
+        case 0: value = knots; break;                    // knots
+        case 1: value = knots * 1.15078; break;          // mph
+        case 2: value = knots * 1.852; break;            // km/h
+        case 3: value = rawValue; break;                 // m/s (raw)
+        default: value = knots; break;
+      }
+      break;
+    }
+    case GribOverlaySettings::PRESSURE: {
+      // Pa to system pressure unit (hPa, mmHg, inHg)
+      double hpa = rawValue / 100.0;
+      switch (um.GetPressureUnit()) {
+        case 0: value = hpa; break;                      // hPa
+        case 1: value = hpa * 0.750062; break;           // mmHg
+        case 2: value = hpa * 0.0295301; break;          // inHg
+        default: value = hpa; break;
+      }
+      break;
+    }
+    case GribOverlaySettings::WAVE: {
+      // meters to system depth unit (m, ft, fathoms)
+      switch (um.GetDepthUnit()) {
+        case 0: value = rawValue; break;                 // meters
+        case 1: value = rawValue * 3.28084; break;       // feet
+        case 2: value = rawValue * 0.546807; break;      // fathoms
+        default: value = rawValue; break;
+      }
+      break;
+    }
+    case GribOverlaySettings::PRECIPITATION: {
+      // mm/h to system rainfall unit (mm, inches)
+      switch (um.GetRainfallUnit()) {
+        case 0: value = rawValue; break;                 // mm
+        case 1: value = rawValue * 0.0393701; break;     // inches
+        default: value = rawValue; break;
+      }
+      break;
+    }
+    case GribOverlaySettings::AIR_TEMPERATURE:
+    case GribOverlaySettings::SEA_TEMPERATURE: {
+      // Kelvin to system temperature unit (Celsius, Fahrenheit, Kelvin)
+      double celsius = rawValue - 273.15;
+      switch (um.GetTemperatureUnit()) {
+        case 0: value = celsius; break;                  // Celsius
+        case 1: value = celsius * 9.0 / 5.0 + 32.0; break; // Fahrenheit
+        case 2: value = rawValue; break;                 // Kelvin
+        default: value = celsius; break;
+      }
+      break;
+    }
+    default:
+      // Use raw value for other parameters
+      value = rawValue;
+      break;
+  }
+
+  return true;
+}
+
+bool DpGrib_pi::Internal_GetVectorValueAt(int layerId, int timeIndex,
+                                           double latitude, double longitude,
+                                           double& magnitude, double& direction) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return false;
+  }
+
+  // Get the wxDateTime for the specified time index
+  wxDateTime time = Internal_GetTimeAt(timeIndex);
+  if (!time.IsValid()) {
+    return false;
+  }
+
+  auto& um = DpUnitManager::Instance();
+
+  // Map layer ID to record indices (VX, VY components)
+  int idxX = -1, idxY = -1;
+  switch (layerId) {
+    case GribOverlaySettings::WIND:
+      idxX = Idx_WIND_VX;
+      idxY = Idx_WIND_VY;
+      break;
+    case GribOverlaySettings::WAVE:
+      // Waves use height + direction, not components
+      {
+        double height = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_HTSIGW, longitude, latitude, time);
+        double dir = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_WVDIR, longitude, latitude, time);
+
+        if (height == GRIB_NOTDEF || dir == GRIB_NOTDEF) {
+          return false;
+        }
+
+        // Convert wave height from meters to system depth unit
+        switch (um.GetDepthUnit()) {
+          case 0: magnitude = height; break;                 // meters
+          case 1: magnitude = height * 3.28084; break;       // feet
+          case 2: magnitude = height * 0.546807; break;      // fathoms
+          default: magnitude = height; break;
+        }
+
+        direction = dir;  // Already in degrees (meteorological convention)
+        return true;
+      }
+    case GribOverlaySettings::CURRENT:
+      idxX = Idx_SEACURRENT_VX;
+      idxY = Idx_SEACURRENT_VY;
+      break;
+    default:
+      // Not a vector layer
+      return false;
+  }
+
+  if (idxX < 0 || idxY < 0) return false;
+
+  // Use the control bar's vector interpolation method
+  double M, A;
+  bool success = m_pGribCtrlBar->getTimeInterpolatedValues(M, A, idxX, idxY,
+                                                            longitude, latitude, time);
+
+  if (!success || M == GRIB_NOTDEF) {
+    return false;
+  }
+
+  // Convert wind/current from m/s to system speed unit
+  if (layerId == GribOverlaySettings::WIND || layerId == GribOverlaySettings::CURRENT) {
+    double knots = M * 3600.0 / 1852.0;  // m/s to knots
+    switch (um.GetWindSpeedUnit()) {
+      case 0: magnitude = knots; break;                 // knots
+      case 1: magnitude = knots * 1.15078; break;       // mph
+      case 2: magnitude = knots * 1.852; break;         // km/h
+      case 3: magnitude = M; break;                     // m/s (raw)
+      default: magnitude = knots; break;
+    }
+  } else {
+    magnitude = M;
+  }
+
+  // Direction is already in meteorological convention (0-360, direction FROM)
+  direction = A;
+
+  return true;
+}
+
+wxString DpGrib_pi::Internal_GetLayerUnit(int layerId) const {
+  auto& um = DpUnitManager::Instance();
+
+  switch (layerId) {
+    case GribOverlaySettings::WIND:
+    case GribOverlaySettings::WIND_GUST:
+    case GribOverlaySettings::CURRENT:
+      return um.GetWindSpeedUnitLabel();
+    case GribOverlaySettings::PRESSURE:
+      return um.GetPressureUnitLabel();
+    case GribOverlaySettings::WAVE:
+      return um.GetDepthUnitLabel();
+    case GribOverlaySettings::PRECIPITATION:
+      return um.GetRainfallUnitLabel();
+    case GribOverlaySettings::CLOUD:
+      return wxString(_T("%"));
+    case GribOverlaySettings::AIR_TEMPERATURE:
+    case GribOverlaySettings::SEA_TEMPERATURE:
+      return um.GetTemperatureUnitLabel();
+    case GribOverlaySettings::CAPE:
+      return wxString(_T("J/kg"));
+    case GribOverlaySettings::COMP_REFL:
+      return wxString(_T("dBZ"));
+    default:
+      return wxEmptyString;
+  }
+}
+
+bool DpGrib_pi::Internal_IsVectorLayer(int layerId) const {
+  switch (layerId) {
+    case GribOverlaySettings::WIND:
+    case GribOverlaySettings::WAVE:
+    case GribOverlaySettings::CURRENT:
+      return true;
+    default:
+      return false;
+  }
+}
+
+wxString DpGrib_pi::Internal_GetLayerDisplayName(int layerId) const {
+  switch (layerId) {
+    case GribOverlaySettings::WIND:
+      return _("Wind");
+    case GribOverlaySettings::WIND_GUST:
+      return _("Wind Gust");
+    case GribOverlaySettings::PRESSURE:
+      return _("Pressure");
+    case GribOverlaySettings::WAVE:
+      return _("Waves");
+    case GribOverlaySettings::CURRENT:
+      return _("Current");
+    case GribOverlaySettings::PRECIPITATION:
+      return _("Precipitation");
+    case GribOverlaySettings::CLOUD:
+      return _("Cloud Cover");
+    case GribOverlaySettings::AIR_TEMPERATURE:
+      return _("Air Temperature");
+    case GribOverlaySettings::SEA_TEMPERATURE:
+      return _("Sea Temperature");
+    case GribOverlaySettings::CAPE:
+      return _("CAPE");
+    case GribOverlaySettings::COMP_REFL:
+      return _("Reflectivity");
+    default:
+      return wxEmptyString;
+  }
+}
