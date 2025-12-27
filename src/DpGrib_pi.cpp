@@ -1896,69 +1896,8 @@ bool DpGrib_pi::Internal_GetScalarValueAt(int layerId, int timeIndex,
     return false;
   }
 
-  auto& um = DpUnitManager::Instance();
-
-  // Convert units based on layer type and system settings
-  switch (layerId) {
-    case GribOverlaySettings::WIND_GUST: {
-      // m/s to system wind speed unit (knots, km/h, mph, m/s)
-      double knots = rawValue * 3600.0 / 1852.0;
-      switch (um.GetWindSpeedUnit()) {
-        case 0: value = knots; break;                    // knots
-        case 1: value = knots * 1.15078; break;          // mph
-        case 2: value = knots * 1.852; break;            // km/h
-        case 3: value = rawValue; break;                 // m/s (raw)
-        default: value = knots; break;
-      }
-      break;
-    }
-    case GribOverlaySettings::PRESSURE: {
-      // Pa to system pressure unit (hPa, mmHg, inHg)
-      double hpa = rawValue / 100.0;
-      switch (um.GetPressureUnit()) {
-        case 0: value = hpa; break;                      // hPa
-        case 1: value = hpa * 0.750062; break;           // mmHg
-        case 2: value = hpa * 0.0295301; break;          // inHg
-        default: value = hpa; break;
-      }
-      break;
-    }
-    case GribOverlaySettings::WAVE: {
-      // meters to system depth unit (m, ft, fathoms)
-      switch (um.GetDepthUnit()) {
-        case 0: value = rawValue; break;                 // meters
-        case 1: value = rawValue * 3.28084; break;       // feet
-        case 2: value = rawValue * 0.546807; break;      // fathoms
-        default: value = rawValue; break;
-      }
-      break;
-    }
-    case GribOverlaySettings::PRECIPITATION: {
-      // mm/h to system rainfall unit (mm, inches)
-      switch (um.GetRainfallUnit()) {
-        case 0: value = rawValue; break;                 // mm
-        case 1: value = rawValue * 0.0393701; break;     // inches
-        default: value = rawValue; break;
-      }
-      break;
-    }
-    case GribOverlaySettings::AIR_TEMPERATURE:
-    case GribOverlaySettings::SEA_TEMPERATURE: {
-      // Kelvin to system temperature unit (Celsius, Fahrenheit, Kelvin)
-      double celsius = rawValue - 273.15;
-      switch (um.GetTemperatureUnit()) {
-        case 0: value = celsius; break;                  // Celsius
-        case 1: value = celsius * 9.0 / 5.0 + 32.0; break; // Fahrenheit
-        case 2: value = rawValue; break;                 // Kelvin
-        default: value = celsius; break;
-      }
-      break;
-    }
-    default:
-      // Use raw value for other parameters
-      value = rawValue;
-      break;
-  }
+  // Convert units using centralized calibration (reuses GribOverlaySettings)
+  value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(layerId, rawValue);
 
   return true;
 }
@@ -1975,8 +1914,6 @@ bool DpGrib_pi::Internal_GetVectorValueAt(int layerId, int timeIndex,
   if (!time.IsValid()) {
     return false;
   }
-
-  auto& um = DpUnitManager::Instance();
 
   // Map layer ID to record indices (VX, VY components)
   int idxX = -1, idxY = -1;
@@ -1995,14 +1932,8 @@ bool DpGrib_pi::Internal_GetVectorValueAt(int layerId, int timeIndex,
           return false;
         }
 
-        // Convert wave height from meters to system depth unit
-        switch (um.GetDepthUnit()) {
-          case 0: magnitude = height; break;                 // meters
-          case 1: magnitude = height * 3.28084; break;       // feet
-          case 2: magnitude = height * 0.546807; break;      // fathoms
-          default: magnitude = height; break;
-        }
-
+        // Convert wave height using centralized calibration
+        magnitude = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::WAVE, height);
         direction = dir;  // Already in degrees (meteorological convention)
         return true;
       }
@@ -2026,19 +1957,8 @@ bool DpGrib_pi::Internal_GetVectorValueAt(int layerId, int timeIndex,
     return false;
   }
 
-  // Convert wind/current from m/s to system speed unit
-  if (layerId == GribOverlaySettings::WIND || layerId == GribOverlaySettings::CURRENT) {
-    double knots = M * 3600.0 / 1852.0;  // m/s to knots
-    switch (um.GetWindSpeedUnit()) {
-      case 0: magnitude = knots; break;                 // knots
-      case 1: magnitude = knots * 1.15078; break;       // mph
-      case 2: magnitude = knots * 1.852; break;         // km/h
-      case 3: magnitude = M; break;                     // m/s (raw)
-      default: magnitude = knots; break;
-    }
-  } else {
-    magnitude = M;
-  }
+  // Convert magnitude using centralized calibration (handles wind/current units)
+  magnitude = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(layerId, M);
 
   // Direction is already in meteorological convention (0-360, direction FROM)
   direction = A;
@@ -2047,31 +1967,12 @@ bool DpGrib_pi::Internal_GetVectorValueAt(int layerId, int timeIndex,
 }
 
 wxString DpGrib_pi::Internal_GetLayerUnit(int layerId) const {
-  auto& um = DpUnitManager::Instance();
-
-  switch (layerId) {
-    case GribOverlaySettings::WIND:
-    case GribOverlaySettings::WIND_GUST:
-    case GribOverlaySettings::CURRENT:
-      return um.GetWindSpeedUnitLabel();
-    case GribOverlaySettings::PRESSURE:
-      return um.GetPressureUnitLabel();
-    case GribOverlaySettings::WAVE:
-      return um.GetDepthUnitLabel();
-    case GribOverlaySettings::PRECIPITATION:
-      return um.GetRainfallUnitLabel();
-    case GribOverlaySettings::CLOUD:
-      return wxString(_T("%"));
-    case GribOverlaySettings::AIR_TEMPERATURE:
-    case GribOverlaySettings::SEA_TEMPERATURE:
-      return um.GetTemperatureUnitLabel();
-    case GribOverlaySettings::CAPE:
-      return wxString(_T("J/kg"));
-    case GribOverlaySettings::COMP_REFL:
-      return wxString(_T("dBZ"));
-    default:
-      return wxEmptyString;
+  if (!m_pGribCtrlBar) {
+    return wxEmptyString;
   }
+
+  // Use centralized unit symbol lookup
+  return m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(layerId);
 }
 
 bool DpGrib_pi::Internal_IsVectorLayer(int layerId) const {
