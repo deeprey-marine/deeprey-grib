@@ -228,6 +228,20 @@ public:
   void Internal_SetAbbreviatedNumbers(int layerId, bool abbreviated);
   bool Internal_AreNumbersAbbreviated(int layerId) const;
 
+  // Meteogram data access methods
+  bool Internal_HasActiveFile() const;
+  wxDateTime Internal_GetTimeAt(int index) const;
+  bool Internal_GetTimeRange(wxDateTime& startTime, wxDateTime& endTime) const;
+  bool Internal_GetScalarValueAt(int layerId, int timeIndex,
+                                  double latitude, double longitude,
+                                  double& value) const;
+  bool Internal_GetVectorValueAt(int layerId, int timeIndex,
+                                  double latitude, double longitude,
+                                  double& magnitude, double& direction) const;
+  wxString Internal_GetLayerUnit(int layerId) const;
+  bool Internal_IsVectorLayer(int layerId) const;
+  wxString Internal_GetLayerDisplayName(int layerId) const;
+
   int m_MenuItem;
   bool m_DialogStyleChanged;
 

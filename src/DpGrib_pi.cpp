@@ -1781,3 +1781,236 @@ bool DpGrib_pi::Internal_AreNumbersAbbreviated(int layerId) const {
   const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   return settings.Settings[layerId].m_bAbbrIsoBarsNumbers;
 }
+
+//----------------------------------------------------------------------------------------------------------
+//          Meteogram Data Access Implementation
+//----------------------------------------------------------------------------------------------------------
+
+bool DpGrib_pi::Internal_HasActiveFile() const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return false;
+  }
+
+  if (!m_pGribCtrlBar->m_bGRIBActiveFile->IsOK()) {
+    return false;
+  }
+
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  return (rsa && rsa->GetCount() > 0);
+}
+
+wxDateTime DpGrib_pi::Internal_GetTimeAt(int index) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return wxDateTime();  // Invalid datetime
+  }
+
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return wxDateTime();
+
+  int count = rsa->GetCount();
+  if (index < 0 || index >= count) {
+    return wxDateTime();  // Invalid datetime
+  }
+
+  // m_Reference_Time is time_t (seconds since epoch, UTC)
+  time_t refTime = rsa->Item(index).m_Reference_Time;
+  wxDateTime dt;
+  dt.Set(refTime);
+  return dt;
+}
+
+bool DpGrib_pi::Internal_GetTimeRange(wxDateTime& startTime, wxDateTime& endTime) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return false;
+  }
+
+  ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa || rsa->GetCount() == 0) {
+    return false;
+  }
+
+  int count = rsa->GetCount();
+
+  // Get first and last time
+  startTime = Internal_GetTimeAt(0);
+  endTime = Internal_GetTimeAt(count - 1);
+
+  return startTime.IsValid() && endTime.IsValid();
+}
+
+bool DpGrib_pi::Internal_GetScalarValueAt(int layerId, int timeIndex,
+                                           double latitude, double longitude,
+                                           double& value) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return false;
+  }
+
+  // Get the wxDateTime for the specified time index
+  wxDateTime time = Internal_GetTimeAt(timeIndex);
+  if (!time.IsValid()) {
+    return false;
+  }
+
+  // Map layer ID to record index
+  int idx = -1;
+  switch (layerId) {
+    case GribOverlaySettings::WIND_GUST:
+      idx = Idx_WIND_GUST;
+      break;
+    case GribOverlaySettings::PRESSURE:
+      idx = Idx_PRESSURE;
+      break;
+    case GribOverlaySettings::WAVE:
+      idx = Idx_HTSIGW;  // Wave height is scalar
+      break;
+    case GribOverlaySettings::PRECIPITATION:
+      idx = Idx_PRECIP_TOT;
+      break;
+    case GribOverlaySettings::CLOUD:
+      idx = Idx_CLOUD_TOT;
+      break;
+    case GribOverlaySettings::AIR_TEMPERATURE:
+      idx = Idx_AIR_TEMP;
+      break;
+    case GribOverlaySettings::SEA_TEMPERATURE:
+      idx = Idx_SEA_TEMP;
+      break;
+    case GribOverlaySettings::CAPE:
+      idx = Idx_CAPE;
+      break;
+    case GribOverlaySettings::COMP_REFL:
+      idx = Idx_COMP_REFL;
+      break;
+    default:
+      // Wind and Current are vector layers, not scalar
+      return false;
+  }
+
+  if (idx < 0) return false;
+
+  // Use the control bar's interpolation method
+  double rawValue = m_pGribCtrlBar->getTimeInterpolatedValue(idx, longitude, latitude, time);
+
+  // GRIB_NOTDEF indicates no data
+  if (rawValue == GRIB_NOTDEF) {
+    return false;
+  }
+
+  // Convert units using centralized calibration (reuses GribOverlaySettings)
+  value = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(layerId, rawValue);
+
+  return true;
+}
+
+bool DpGrib_pi::Internal_GetVectorValueAt(int layerId, int timeIndex,
+                                           double latitude, double longitude,
+                                           double& magnitude, double& direction) const {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    return false;
+  }
+
+  // Get the wxDateTime for the specified time index
+  wxDateTime time = Internal_GetTimeAt(timeIndex);
+  if (!time.IsValid()) {
+    return false;
+  }
+
+  // Map layer ID to record indices (VX, VY components)
+  int idxX = -1, idxY = -1;
+  switch (layerId) {
+    case GribOverlaySettings::WIND:
+      idxX = Idx_WIND_VX;
+      idxY = Idx_WIND_VY;
+      break;
+    case GribOverlaySettings::WAVE:
+      // Waves use height + direction, not components
+      {
+        double height = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_HTSIGW, longitude, latitude, time);
+        double dir = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_WVDIR, longitude, latitude, time);
+
+        if (height == GRIB_NOTDEF || dir == GRIB_NOTDEF) {
+          return false;
+        }
+
+        // Convert wave height using centralized calibration
+        magnitude = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(GribOverlaySettings::WAVE, height);
+        direction = dir;  // Already in degrees (meteorological convention)
+        return true;
+      }
+    case GribOverlaySettings::CURRENT:
+      idxX = Idx_SEACURRENT_VX;
+      idxY = Idx_SEACURRENT_VY;
+      break;
+    default:
+      // Not a vector layer
+      return false;
+  }
+
+  if (idxX < 0 || idxY < 0) return false;
+
+  // Use the control bar's vector interpolation method
+  double M, A;
+  bool success = m_pGribCtrlBar->getTimeInterpolatedValues(M, A, idxX, idxY,
+                                                            longitude, latitude, time);
+
+  if (!success || M == GRIB_NOTDEF) {
+    return false;
+  }
+
+  // Convert magnitude using centralized calibration (handles wind/current units)
+  magnitude = m_pGribCtrlBar->m_OverlaySettings.CalibrateValue(layerId, M);
+
+  // Direction is already in meteorological convention (0-360, direction FROM)
+  direction = A;
+
+  return true;
+}
+
+wxString DpGrib_pi::Internal_GetLayerUnit(int layerId) const {
+  if (!m_pGribCtrlBar) {
+    return wxEmptyString;
+  }
+
+  // Use centralized unit symbol lookup
+  return m_pGribCtrlBar->m_OverlaySettings.GetUnitSymbol(layerId);
+}
+
+bool DpGrib_pi::Internal_IsVectorLayer(int layerId) const {
+  switch (layerId) {
+    case GribOverlaySettings::WIND:
+    case GribOverlaySettings::WAVE:
+    case GribOverlaySettings::CURRENT:
+      return true;
+    default:
+      return false;
+  }
+}
+
+wxString DpGrib_pi::Internal_GetLayerDisplayName(int layerId) const {
+  switch (layerId) {
+    case GribOverlaySettings::WIND:
+      return _("Wind");
+    case GribOverlaySettings::WIND_GUST:
+      return _("Wind Gust");
+    case GribOverlaySettings::PRESSURE:
+      return _("Pressure");
+    case GribOverlaySettings::WAVE:
+      return _("Waves");
+    case GribOverlaySettings::CURRENT:
+      return _("Current");
+    case GribOverlaySettings::PRECIPITATION:
+      return _("Precipitation");
+    case GribOverlaySettings::CLOUD:
+      return _("Cloud Cover");
+    case GribOverlaySettings::AIR_TEMPERATURE:
+      return _("Air Temperature");
+    case GribOverlaySettings::SEA_TEMPERATURE:
+      return _("Sea Temperature");
+    case GribOverlaySettings::CAPE:
+      return _("CAPE");
+    case GribOverlaySettings::COMP_REFL:
+      return _("Reflectivity");
+    default:
+      return wxEmptyString;
+  }
+}

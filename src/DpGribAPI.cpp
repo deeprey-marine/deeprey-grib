@@ -532,4 +532,70 @@ bool DpGribAPI::AreNumbersAbbreviated(int layerId) const {
     return false;
 }
 
+// =============================================================================
+// Meteogram Data Access Methods
+// =============================================================================
+
+bool DpGribAPI::HasActiveFile() const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_HasActiveFile();
+    }
+    return false;
+}
+
+wxDateTime DpGribAPI::GetTimeAt(int index) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetTimeAt(index);
+    }
+    return wxDateTime();  // Invalid datetime
+}
+
+bool DpGribAPI::GetTimeRange(wxDateTime& startTime, wxDateTime& endTime) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetTimeRange(startTime, endTime);
+    }
+    return false;
+}
+
+bool DpGribAPI::GetScalarValueAt(int layerId, int timeIndex,
+                                  double latitude, double longitude,
+                                  double& value) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetScalarValueAt(
+            layerId, timeIndex, latitude, longitude, value);
+    }
+    return false;
+}
+
+bool DpGribAPI::GetVectorValueAt(int layerId, int timeIndex,
+                                  double latitude, double longitude,
+                                  double& magnitude, double& direction) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetVectorValueAt(
+            layerId, timeIndex, latitude, longitude, magnitude, direction);
+    }
+    return false;
+}
+
+wxString DpGribAPI::GetLayerUnit(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetLayerUnit(layerId);
+    }
+    return wxEmptyString;
+}
+
+bool DpGribAPI::IsVectorLayer(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsVectorLayer(layerId);
+    }
+    return false;
+}
+
+wxString DpGribAPI::GetLayerDisplayName(int layerId) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetLayerDisplayName(layerId);
+    }
+    return wxEmptyString;
+}
+
 } // namespace DpGrib
