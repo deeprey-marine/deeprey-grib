@@ -527,8 +527,10 @@ void GRIBOverlayFactory::SettingsIdToGribId(int i, int &idx, int &idy,
 
 bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
   if (!m_pGribTimelineRecordSet) {
+#if 0
     DrawMessageWindow((m_Message), vp->pix_width, vp->pix_height,
                       m_Font_Message);
+#endif
     return false;
   }
 
@@ -611,8 +613,10 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
   }
   if (!m_Message_Hiden.IsEmpty()) m_Message_Hiden.Append(_T("\n"));
   m_Message_Hiden.Append(m_Message);
+#if 0
   DrawMessageWindow(m_Message_Hiden, vp->pix_width, vp->pix_height,
                     m_Font_Message);
+#endif
 
   if (m_dlg.m_highlight_latmax - m_dlg.m_highlight_latmin > 0.01 &&
       m_dlg.m_highlight_lonmax - m_dlg.m_highlight_lonmin > 0.01) {
