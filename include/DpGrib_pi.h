@@ -176,6 +176,8 @@ public:
   int Internal_GetOverlayTransparency() const;
   void Internal_StartWorldDownload(double latMin, double lonMin, double latMax,
                                    double lonMax, int durationHours);
+  void Internal_StartXyGribDownload(double latMin, double lonMin, double latMax,
+                                    double lonMax, int durationHours);
   bool Internal_IsDownloading() const;
   void Internal_CancelDownload();
   void NotifyDownloadProgress(long transferred, long total, bool completed, bool success);

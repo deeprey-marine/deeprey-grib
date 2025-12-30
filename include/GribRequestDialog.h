@@ -216,6 +216,27 @@ public:
                                   double lonMax, int durationHours);
 
   /**
+   * Start an XyGrib download triggered via API with default configuration.
+   *
+   * Downloads GRIB data from the XyGrib server using hardcoded defaults:
+   * - Model: GFS 0.25° resolution
+   * - Interval: 3 hours
+   * - Duration: 3 days
+   * - Parameters: Full set (Wind, Pressure, Rain, Clouds, Temp, CAPE, Reflectivity, Gusts)
+   * - Wave data: WW3 with significant height and wind waves
+   *
+   * @param latMin Minimum latitude of bounding box
+   * @param lonMin Minimum longitude of bounding box
+   * @param latMax Maximum latitude of bounding box
+   * @param lonMax Maximum longitude of bounding box
+   * @param durationHours Forecast duration in hours
+   *
+   * @note Large geographic areas may exceed the 10MB XyGrib server limit.
+   */
+  void StartXyGribDownloadFromAPI(double latMin, double lonMin, double latMax,
+                                   double lonMax, int durationHours);
+
+  /**
    * Check if a download is currently in progress.
    * @return true if downloading, false otherwise
    */

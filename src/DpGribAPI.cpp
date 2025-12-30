@@ -194,10 +194,19 @@ void DpGribAPI::NotifyFormatStateChanged(const std::vector<std::pair<int, int>>&
 // Download Control
 // =============================================================================
 
-void DpGribAPI::StartWorldDownload(double latMin, double lonMin, double latMax, 
+void DpGribAPI::StartWorldDownload(double latMin, double lonMin, double latMax,
                                    double lonMax, int durationHours) {
     if (m_plugin) {
         static_cast<DpGrib_pi*>(m_plugin)->Internal_StartWorldDownload(
+            latMin, lonMin, latMax, lonMax, durationHours);
+    }
+}
+
+void DpGribAPI::StartXyGribDownload(double latMin, double lonMin,
+                                    double latMax, double lonMax,
+                                    int durationHours) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_StartXyGribDownload(
             latMin, lonMin, latMax, lonMax, durationHours);
     }
 }
