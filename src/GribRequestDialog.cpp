@@ -76,6 +76,7 @@ GribRequestSetting::GribRequestSetting(GRIBUICtrlBar &parent)
   m_downloading = false;
   m_bTransferSuccess = true;
   m_downloadType = GribDownloadType::NONE;
+  m_xygribStage1 = false;
 
   auto bg = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW)
                 .GetAsString(wxC2S_HTML_SYNTAX);
@@ -546,7 +547,9 @@ void GribRequestSetting::onDLEvent(OCPN_downloadEvent &ev) {
       m_download_handle = 0;
 
       // Notify API consumers that download completed
-      if (g_pi) {
+      // Skip notification during XyGrib stage 1 (XML request) - only notify
+      // after stage 2 (actual GRIB download) completes
+      if (g_pi && !m_xygribStage1) {
         g_pi->NotifyDownloadProgress(ev.getTransferred(), ev.getTotal(),
                                      true, m_bTransferSuccess);
       }
@@ -2459,6 +2462,7 @@ void GribRequestSetting::StartXyGribDownloadFromAPI(double latMin, double lonMin
   m_canceled = false;
   m_downloading = true;
   m_downloadType = GribDownloadType::XYGRIB;
+  m_xygribStage1 = true;  // Stage 1: XML request (suppress completion notification)
 
   // Build URL with duration
   wxString requestUrl =
@@ -2491,6 +2495,7 @@ void GribRequestSetting::StartXyGribDownloadFromAPI(double latMin, double lonMin
   if (m_canceled || !m_bTransferSuccess) {
     wxLogMessage("deeprey_grib_pi: XyGrib API - XML request failed");
     m_downloadType = GribDownloadType::NONE;
+    m_xygribStage1 = false;  // Reset flag before error notification
     wxRemoveFile(xmlPath);
     if (g_pi) g_pi->NotifyDownloadProgress(0, 0, true, false);
     return;
@@ -2515,6 +2520,7 @@ void GribRequestSetting::StartXyGribDownloadFromAPI(double latMin, double lonMin
     wxLogMessage("deeprey_grib_pi: XyGrib API - Server error: %s",
                  errorStr.c_str());
     m_downloadType = GribDownloadType::NONE;
+    m_xygribStage1 = false;  // Reset flag before error notification
     wxRemoveFile(xmlPath);
     if (g_pi) g_pi->NotifyDownloadProgress(0, 0, true, false);
     return;
@@ -2532,6 +2538,7 @@ void GribRequestSetting::StartXyGribDownloadFromAPI(double latMin, double lonMin
     wxLogMessage(
         "deeprey_grib_pi: XyGrib API - Failed to parse GRIB URL from XML");
     m_downloadType = GribDownloadType::NONE;
+    m_xygribStage1 = false;  // Reset flag before error notification
     wxRemoveFile(xmlPath);
     if (g_pi) g_pi->NotifyDownloadProgress(0, 0, true, false);
     return;
@@ -2540,6 +2547,7 @@ void GribRequestSetting::StartXyGribDownloadFromAPI(double latMin, double lonMin
   wxRemoveFile(xmlPath);
 
   // Stage 2: Download actual GRIB file
+  m_xygribStage1 = false;  // Now in stage 2, allow completion notification
   wxString gribFilename = wxString::Format(
       "XyGrib_API_%s_GFS_0P25.grb2", wxDateTime::Now().Format("%F-%H-%M"));
   wxString gribPath = m_parent.GetGribDir();

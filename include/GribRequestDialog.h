@@ -400,6 +400,7 @@ private:
   bool m_canceled;
   bool m_bLocal_source_selected;
   GribDownloadType m_downloadType;
+  bool m_xygribStage1;  ///< True during XyGrib XML request (stage 1), false during GRIB download (stage 2)
   /** Index of the canvas where the bounding box is drawn during manual zone
    * selection. */
   int m_boundingBoxCanvasIndex;
