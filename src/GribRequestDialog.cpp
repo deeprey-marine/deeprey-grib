@@ -76,6 +76,7 @@ GribRequestSetting::GribRequestSetting(GRIBUICtrlBar &parent)
   m_downloading = false;
   m_bTransferSuccess = true;
   m_downloadType = GribDownloadType::NONE;
+  m_xygribStage1 = false;
 
   auto bg = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW)
                 .GetAsString(wxC2S_HTML_SYNTAX);
@@ -546,7 +547,9 @@ void GribRequestSetting::onDLEvent(OCPN_downloadEvent &ev) {
       m_download_handle = 0;
 
       // Notify API consumers that download completed
-      if (g_pi) {
+      // Skip notification during XyGrib stage 1 (XML request) - only notify
+      // after stage 2 (actual GRIB download) completes
+      if (g_pi && !m_xygribStage1) {
         g_pi->NotifyDownloadProgress(ev.getTransferred(), ev.getTotal(),
                                      true, m_bTransferSuccess);
       }
@@ -592,6 +595,13 @@ void GribRequestSetting::onDLEvent(OCPN_downloadEvent &ev) {
             case GribDownloadType::LOCAL_CATALOG:
               m_stLocalDownloadInfo->SetLabelText(wxString::Format(
                   _("Downloading... %li / ???"), ev.getTransferred()));
+              break;
+            case GribDownloadType::XYGRIB:
+              // Show indeterminate progress when total size unknown
+              m_xygribPanel->m_status_text->SetLabel(wxString::Format(
+                  "%s (%ld kB / ???)",
+                  _("Downloading GRIB file").c_str().AsChar(),
+                  ev.getTransferred() / 1024));
               break;
             default:
               break;
@@ -2061,6 +2071,50 @@ void GribRequestSetting::OnSendMaiL(wxCommandEvent &event) {
   ::wxEndBusyCursor();
 }
 
+/// @brief Build XyGrib URL with hardcoded defaults for API downloads.
+/// @param latMin Minimum latitude of bounding box
+/// @param lonMin Minimum longitude of bounding box
+/// @param latMax Maximum latitude of bounding box
+/// @param lonMax Maximum longitude of bounding box
+/// @param durationHours Forecast duration in hours
+/// @return A string with the complete URL for the XyGrib request
+static wxString BuildXyGribUrlForAPI(double latMin, double lonMin,
+                                     double latMax, double lonMax,
+                                     int durationHours) {
+  wxString urlStr = "http://grbsrv.opengribs.org/getmygribs2.php?";
+
+  // Bounding box (floor/ceil for proper coverage)
+  urlStr << wxString::Format("la1=%.0f", floor(latMin));
+  urlStr << wxString::Format("&la2=%.0f", ceil(latMax));
+  urlStr << wxString::Format("&lo1=%.0f", floor(lonMin));
+  urlStr << wxString::Format("&lo2=%.0f", ceil(lonMax));
+
+  // Model: GFS 0.25° resolution
+  urlStr << "&model=gfs_p25_";
+
+  // Interval: 3 hours
+  urlStr << "&intv=3";
+
+  // Duration: Convert hours to days (round up)
+  int days = (durationHours + 23) / 24;
+  if (days < 1) days = 1;
+  if (days > 10) days = 10;  // XyGrib GFS max is 10 days
+  urlStr << wxString::Format("&days=%d", days);
+
+  // Run cycle: Latest available
+  urlStr << "&cyc=last";
+
+  // Full atmospheric parameters: Wind, Pressure, Rain, Clouds, Temp, CAPE,
+  // Reflectivity, Gusts
+  urlStr << "&par=W;P;R;C;T;c;r;G;";
+
+  // Wave model: WW3 with all parameters (significant height + wind waves)
+  urlStr << "&wmdl=ww3_p50_";
+  urlStr << "&wpar=s;h;d;p;";
+
+  return urlStr;
+}
+
 /// @brief Build XyGrib's GRIB URL from GUI selections
 /// @return A string with the complete URL of the GRIB file
 wxString GribRequestSetting::BuildXyGribUrl() {
@@ -2379,6 +2433,169 @@ void GribRequestSetting::OnXyGribDownloadButton(wxCommandEvent &event) {
   }
   m_downloadType = GribDownloadType::NONE;
   EnableDownloadButtons();
+}
+
+void GribRequestSetting::StartXyGribDownloadFromAPI(double latMin, double lonMin,
+                                                     double latMax,
+                                                     double lonMax,
+                                                     int durationHours) {
+  // Validate - cannot start if already downloading
+  if (m_downloading) {
+    wxLogMessage(
+        "deeprey_grib_pi: Cannot start XyGrib download - download already in "
+        "progress");
+    return;
+  }
+
+  // Validate bounds
+  if (latMin >= latMax || lonMin >= lonMax) {
+    wxLogMessage("deeprey_grib_pi: Invalid XyGrib download bounds");
+    if (g_pi) g_pi->NotifyDownloadProgress(0, 0, true, false);
+    return;
+  }
+  if (latMin < -90 || latMax > 90 || lonMin < -180 || lonMax > 180) {
+    wxLogMessage("deeprey_grib_pi: XyGrib download bounds out of range");
+    if (g_pi) g_pi->NotifyDownloadProgress(0, 0, true, false);
+    return;
+  }
+
+  m_canceled = false;
+  m_downloading = true;
+  m_downloadType = GribDownloadType::XYGRIB;
+  m_xygribStage1 = true;  // Stage 1: XML request (suppress completion notification)
+
+  // Build URL with duration
+  wxString requestUrl =
+      BuildXyGribUrlForAPI(latMin, lonMin, latMax, lonMax, durationHours);
+  wxLogMessage("deeprey_grib_pi: Starting XyGrib download via API: %s",
+               requestUrl.c_str());
+
+  // Stage 1: Download XML response (triggers server-side GRIB generation)
+  wxString xmlFilename = wxString::Format("ocpn_xygrib_api_%s.xml",
+                                          wxDateTime::Now().Format("%F-%H-%M"));
+  wxString xmlPath = m_parent.GetGribDir();
+  xmlPath << wxFileName::GetPathSeparator() << xmlFilename;
+
+  if (!m_connected) {
+    m_connected = true;
+    Connect(
+        wxEVT_DOWNLOAD_EVENT,
+        (wxObjectEventFunction)(wxEventFunction)&GribRequestSetting::onDLEvent);
+  }
+
+  OCPN_downloadFileBackground(requestUrl.c_str(), xmlPath, this,
+                              &m_download_handle);
+
+  // Wait for XML download
+  while (m_downloading) {
+    wxTheApp->ProcessPendingEvents();
+    wxMilliSleep(10);
+  }
+
+  if (m_canceled || !m_bTransferSuccess) {
+    wxLogMessage("deeprey_grib_pi: XyGrib API - XML request failed");
+    m_downloadType = GribDownloadType::NONE;
+    m_xygribStage1 = false;  // Reset flag before error notification
+    wxRemoveFile(xmlPath);
+    if (g_pi) g_pi->NotifyDownloadProgress(0, 0, true, false);
+    return;
+  }
+
+  // Parse XML response
+  wxFile xmlFile;
+  wxString strXml;
+  bool readOk = xmlFile.Open(xmlPath) && xmlFile.ReadAll(&strXml);
+  if (readOk) xmlFile.Close();
+
+  // Check status
+  wxString gribUrl;
+  if (!readOk || ((int)strXml.find("\"status\":true") == wxNOT_FOUND)) {
+    wxString errorStr = "Unknown server error";
+    int errPos = strXml.find("\"message\":\"");
+    int errEnd = strXml.find("\"}");
+    if ((errPos != wxNOT_FOUND) && (errEnd != wxNOT_FOUND)) {
+      errPos += 11;
+      errorStr = strXml.Mid(errPos, errEnd - errPos);
+    }
+    wxLogMessage("deeprey_grib_pi: XyGrib API - Server error: %s",
+                 errorStr.c_str());
+    m_downloadType = GribDownloadType::NONE;
+    m_xygribStage1 = false;  // Reset flag before error notification
+    wxRemoveFile(xmlPath);
+    if (g_pi) g_pi->NotifyDownloadProgress(0, 0, true, false);
+    return;
+  }
+
+  // Extract GRIB URL
+  int urlPos = strXml.find("\"url\":\"http:");
+  int urlEnd = strXml.find(".grb2\"");
+  if ((urlPos != wxNOT_FOUND) && (urlEnd != wxNOT_FOUND)) {
+    urlPos += 7;
+    urlEnd += 5;
+    gribUrl = strXml.Mid(urlPos, urlEnd - urlPos);
+    gribUrl.Replace("\\/", "/");
+  } else {
+    wxLogMessage(
+        "deeprey_grib_pi: XyGrib API - Failed to parse GRIB URL from XML");
+    m_downloadType = GribDownloadType::NONE;
+    m_xygribStage1 = false;  // Reset flag before error notification
+    wxRemoveFile(xmlPath);
+    if (g_pi) g_pi->NotifyDownloadProgress(0, 0, true, false);
+    return;
+  }
+
+  wxRemoveFile(xmlPath);
+
+  // Stage 2: Download actual GRIB file
+  m_xygribStage1 = false;  // Now in stage 2, allow completion notification
+  wxString gribFilename = wxString::Format(
+      "XyGrib_API_%s_GFS_0P25.grb2", wxDateTime::Now().Format("%F-%H-%M"));
+  wxString gribPath = m_parent.GetGribDir();
+  gribPath << wxFileName::GetPathSeparator() << gribFilename;
+
+  m_canceled = false;
+  m_downloading = true;
+
+  if (!m_connected) {
+    m_connected = true;
+    Connect(
+        wxEVT_DOWNLOAD_EVENT,
+        (wxObjectEventFunction)(wxEventFunction)&GribRequestSetting::onDLEvent);
+  }
+
+  OCPN_downloadFileBackground(gribUrl.c_str(), gribPath, this,
+                              &m_download_handle);
+
+  // Wait for GRIB download
+  while (m_downloading) {
+    wxTheApp->ProcessPendingEvents();
+    wxMilliSleep(10);
+  }
+
+  if (!m_canceled && m_bTransferSuccess) {
+    wxLogMessage("deeprey_grib_pi: XyGrib API - Download complete: %s",
+                 gribPath.c_str());
+    wxFileName fn(gribPath);
+    m_parent.m_grib_dir = fn.GetPath();
+    m_parent.m_file_names.Clear();
+    m_parent.m_file_names.Add(gribPath);
+    m_parent.OpenFile();
+
+    if (m_parent.m_bGRIBActiveFile && m_parent.m_bGRIBActiveFile->IsOK()) {
+      CleanupOldGribFiles(gribPath);
+    }
+
+    if (m_parent.pPlugIn && m_parent.pPlugIn->m_bZoomToCenterAtInit) {
+      m_parent.DoZoomToCenter();
+    }
+
+    m_parent.SetDialogsStyleSizePosition(true);
+    SaveConfig();
+  } else {
+    wxLogMessage("deeprey_grib_pi: XyGrib API - Download failed or cancelled");
+  }
+
+  m_downloadType = GribDownloadType::NONE;
 }
 
 /// @brief Handle action of changing atmospheric model selection.
