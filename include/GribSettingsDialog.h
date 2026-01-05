@@ -101,6 +101,7 @@ struct GribOverlaySettings {
     COMP_REFL,
     GEO_ALTITUDE,
     REL_HUMIDITY,
+    WAVE_PERIOD,      // Wave period in seconds (scalar from Idx_WVPER)
     SETTINGS_COUNT
   };
   enum Units0 { KNOTS, M_S, MPH, KPH, BFS };
@@ -111,6 +112,7 @@ struct GribOverlaySettings {
   enum Units5 { PERCENTAGE };
   enum Units6 { JPKG };
   enum Units7 { DBZ };
+  enum Units8 { SECONDS };  // Wave period units
 
   struct OverlayDataSettings {
     int m_Units;
