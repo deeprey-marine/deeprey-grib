@@ -1889,6 +1889,9 @@ bool DpGrib_pi::Internal_GetScalarValueAt(int layerId, int timeIndex,
     case GribOverlaySettings::COMP_REFL:
       idx = Idx_COMP_REFL;
       break;
+    case GribOverlaySettings::WAVE_PERIOD:
+      idx = Idx_WVPER;
+      break;
     default:
       // Wind and Current are vector layers, not scalar
       return false;
@@ -2018,6 +2021,8 @@ wxString DpGrib_pi::Internal_GetLayerDisplayName(int layerId) const {
       return _("CAPE");
     case GribOverlaySettings::COMP_REFL:
       return _("Reflectivity");
+    case GribOverlaySettings::WAVE_PERIOD:
+      return _("Wave Period");
     default:
       return wxEmptyString;
   }

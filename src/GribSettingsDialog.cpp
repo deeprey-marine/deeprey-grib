@@ -39,9 +39,10 @@ static const wxString units6_names[] = {_("j/kg"), wxEmptyString};
 static const wxString units7_names[] = {_("Knots"), _("m/s"), _("mph"),
                                         _("km/h"), wxEmptyString};
 static const wxString units8_names[] = {_("dBZ"), wxEmptyString};
+static const wxString units9_names[] = {_("Seconds"), wxEmptyString};
 static const wxString *unit_names[] = {
     units0_names, units1_names, units2_names, units3_names, units4_names,
-    units5_names, units6_names, units7_names, units8_names};
+    units5_names, units6_names, units7_names, units8_names, units9_names};
 
 static const wxString name_from_index[] = {_T("Wind"),
                                            _T("WindGust"),
@@ -55,7 +56,8 @@ static const wxString name_from_index[] = {_T("Wind"),
                                            _T("CAPE"),
                                            _T("CompositeReflectivity"),
                                            _T("Altitude"),
-                                           _T("RelativeHumidity")};
+                                           _T("RelativeHumidity"),
+                                           _T("WavePeriod")};
 static const wxString tname_from_index[] = {_("Wind"),
                                             _("Wind Gust"),
                                             _("Pressure"),
@@ -68,10 +70,11 @@ static const wxString tname_from_index[] = {_("Wind"),
                                             _("CAPE"),
                                             _T("Composite Reflectivity"),
                                             _("Altitude(Geopotential)"),
-                                            _("Relative Humidity")};
+                                            _("Relative Humidity"),
+                                            _("Wave Period")};
 
 static const int unittype[GribOverlaySettings::SETTINGS_COUNT] = {
-    0, 0, 1, 2, 7, 4, 5, 3, 3, 6, 8, 2, 5};
+    0, 0, 1, 2, 7, 4, 5, 3, 3, 6, 8, 2, 5, 9};  // 9 = seconds for WAVE_PERIOD
 
 static const int minuttes_from_index[] = {2,  5,   10,  20,  30,  60,
                                           90, 180, 360, 720, 1440};
@@ -592,6 +595,12 @@ wxString GribOverlaySettings::GetUnitSymbol(int settings) {
       switch (Settings[settings].m_Units) {
         case DBZ:
           return _T("dBZ");
+      }
+      break;
+    case 9:
+      switch (Settings[settings].m_Units) {
+        case SECONDS:
+          return _T("s");
       }
       break;
   }
