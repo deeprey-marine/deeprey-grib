@@ -33,6 +33,7 @@
 #include <wx/progdlg.h>
 #include "pi_ocpndc.h"
 #include "pi_shaders.h"
+#include "grib_shaders.h"
 
 #ifdef __ANDROID__
 #include "qdebug.h"
@@ -232,9 +233,17 @@ GRIBOverlayFactory::GRIBOverlayFactory(GRIBUICtrlBar &dlg)
   for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++)
     m_pOverlay[i] = nullptr;
 
+  m_bUseGPURenderer = false;
+  m_bGPUInitialized = false;
+  m_glCaps = {false, false, 0};
+  m_gpuParticles = nullptr;
+
   m_ParticleMap = nullptr;
   m_tParticleTimer.Connect(
       wxEVT_TIMER, wxTimerEventHandler(GRIBOverlayFactory::OnParticleTimer),
+      nullptr, this);
+  m_gpuAnimTimer.Connect(
+      wxEVT_TIMER, wxTimerEventHandler(GRIBOverlayFactory::OnGPUAnimTimer),
       nullptr, this);
   m_bUpdateParticles = false;
 
@@ -362,6 +371,11 @@ GRIBOverlayFactory::~GRIBOverlayFactory() {
 
   ClearParticles();
 
+  delete m_gpuParticles;
+  m_gpuParticles = nullptr;
+
+  if (m_bGPUInitialized) grib_CleanupGPUShaders();
+
   if (m_oDC) delete m_oDC;
   if (m_Font_Message) delete m_Font_Message;
 }
@@ -430,6 +444,12 @@ bool GRIBOverlayFactory::RenderGLGribOverlay(wxGLContext *pcontext,
   m_oDC->SetDC(nullptr);
 
   m_pdc = nullptr;  // inform lower layers that this is OpenGL render
+
+  // Initialize GPU renderer on first GL call
+  if (!m_bGPUInitialized) {
+    InitGPURenderer();
+    m_bGPUInitialized = true;
+  }
 
   bool rv = DoRenderGribOverlay(vp);
 
@@ -685,14 +705,14 @@ bool GRIBOverlayFactory::CreateGribGLTexture(GribOverlay *pGO, int settings,
   int tw, th, samples = 1;
   double delta = 0;
   ;
-  if (pGR->getNi() > 1024 || pGR->getNj() > 1024) {
+  if (pGR->getNi() > 2048 || pGR->getNj() > 2048) {
     // downsample
     samples = 0;
     tw = pGR->getNi();
     th = pGR->getNj();
     double dw, dh;
-    dw = (tw > 1022) ? 1022. / tw : 1.;
-    dh = (th > 1022) ? 1022. / th : 1.;
+    dw = (tw > 2046) ? 2046. / tw : 1.;
+    dh = (th > 2046) ? 2046. / th : 1.;
     delta = wxMin(dw, dh);
     th *= delta;
     tw *= delta;
@@ -700,15 +720,15 @@ bool GRIBOverlayFactory::CreateGribGLTexture(GribOverlay *pGO, int settings,
     th += 2;
   } else
     for (;;) {
-      // oversample up to 16x
+      // oversample up to 32x
       tw = samples * (pGR->getNi() - 1) + 1 + 2 * !repeat;
       th = samples * (pGR->getNj() - 1) + 1 + 2;
-      if (tw >= 512 || th >= 512 || samples == 16) break;
+      if (tw >= 1024 || th >= 1024 || samples == 32) break;
       samples *= 2;
     }
 
   //    Dont try to create enormous GRIB textures
-  if (tw > 1024 || th > 1024) return false;
+  if (tw > 4096 || th > 4096) return false;
 
   pGO->m_iTexDataDim[0] = tw;
   pGO->m_iTexDataDim[1] = th;
@@ -1812,8 +1832,7 @@ void GRIBOverlayFactory::RenderGribOverlayMap(int settings, GribRecord **pGR,
 
       texture_format = GL_TEXTURE_2D;
 
-      if (!texture_format)  // it's very unlikely to not have any of the above
-                            // extensions
+      if (!texture_format)
         m_Message_Hiden.Append(
             _("Overlays not supported by this graphics hardware (Disable "
               "OpenGL)"));
@@ -2094,6 +2113,14 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
   pGRY = pGR[idy];
 
   if (!pGRX || !pGRY) return;
+
+  // GPU particle path
+  if (m_bUseGPURenderer && m_gpuParticles) {
+    m_gpuParticles->Update(pGRX, pGRY, settings, m_Settings, vp);
+    m_gpuParticles->Render(vp);
+    ScheduleGPUParticleRefresh();
+    return;
+  }
 
   wxStopWatch sw;
   sw.Start();
@@ -2446,8 +2473,8 @@ void GRIBOverlayFactory::OnParticleTimer(wxTimerEvent &event) {
   m_bUpdateParticles = true;
 
   // If multicanvas are active, render the overlay on the right canvas only
-  if (GetCanvasCount() > 1)               // multi?
-    GetCanvasByIndex(1)->Refresh(false);  // update the last rendered canvas
+  if (GetCanvasCount() > 1)
+    GetCanvasByIndex(1)->Refresh(false);
   else
     GetOCPNCanvasWindow()->Refresh(false);
 }
@@ -2947,4 +2974,34 @@ void GRIBOverlayFactory::DrawGLTexture(GribOverlay *pGO, GribRecord *pGR,
   glDisable(GL_BLEND);
   glDisable(texture_format);
 }
+
+// ============================================================================
+// GPU Heatmap Renderer (GL 3.3+)
+// ============================================================================
+
+void GRIBOverlayFactory::InitGPURenderer() {
+  m_glCaps = grib_DetectCapabilities();
+  if (m_glCaps.hasGL33 && grib_InitGPUShaders()) {
+    m_bUseGPURenderer = true;
+    m_gpuParticles = new DpGribGPUParticles();
+    m_gpuParticles->Initialize(m_glCaps);
+    printf("GRIB GPU: Particle renderer enabled\n");
+  } else {
+    m_bUseGPURenderer = false;
+    printf("GRIB GPU: Falling back to CPU particles\n");
+  }
+}
+
+// Dedicated GPU particle animation timer — radar-style self-scheduling
+void GRIBOverlayFactory::ScheduleGPUParticleRefresh() {
+  m_gpuAnimTimer.StartOnce(30);
+}
+
+void GRIBOverlayFactory::OnGPUAnimTimer(wxTimerEvent &event) {
+  for (int i = 0; i < GetCanvasCount(); i++) {
+    wxWindow *canvas = GetCanvasByIndex(i);
+    if (canvas) canvas->Refresh(false);
+  }
+}
+
 #endif

@@ -40,6 +40,8 @@
 #include <wx/geometry.h>
 
 #include "pi_gl.h"
+#include "grib_shaders.h"
+#include "DpGribGPUParticles.h"
 
 #include "pi_ocpndc.h"
 #include "pi_TexFont.h"
@@ -78,6 +80,7 @@ public:
 
   double m_dwidth, m_dheight;
 };
+
 
 #define MAX_PARTICLE_HISTORY 8
 #include <vector>
@@ -202,6 +205,8 @@ public:
   void ClearParticles() {
     delete m_ParticleMap;
     m_ParticleMap = nullptr;
+    if (m_gpuParticles) m_gpuParticles->Reset();
+    m_gpuAnimTimer.Stop();
   }
 
   GribTimelineRecordSet *m_pGribTimelineRecordSet;
@@ -309,6 +314,8 @@ private:
   void RenderGribParticles(int settings, GribRecord **pGR, PlugIn_ViewPort *vp);
   void DrawLineBuffer(LineBuffer &buffer);
   void OnParticleTimer(wxTimerEvent &event);
+  void OnGPUAnimTimer(wxTimerEvent &event);
+  void ScheduleGPUParticleRefresh();
 
   wxString GetRefString(GribRecord *rec, int map);
   void DrawMessageWindow(wxString msg, int x, int y, wxFont *mfont);
@@ -338,6 +345,9 @@ private:
   bool CreateGribGLTexture(GribOverlay *pGO, int config, GribRecord *pGR);
   void DrawSingleGLTexture(GribOverlay *pGO, GribRecord *pGR, double uv[],
                            double x, double y, double xs, double ys);
+
+  // GPU particle system init (GL 3.3+)
+  void InitGPURenderer();
 #endif
   wxImage CreateGribImage(int config, GribRecord *pGR, PlugIn_ViewPort *vp,
                           int grib_pixel_size, const wxPoint &porg);
@@ -345,6 +355,12 @@ private:
   double m_last_vp_scale;
 
   GribOverlay *m_pOverlay[GribOverlaySettings::SETTINGS_COUNT];
+
+  // GPU particle rendering state (GL 3.3+)
+  bool m_bUseGPURenderer;
+  bool m_bGPUInitialized;
+  DpGribGLCapabilities m_glCaps;
+  DpGribGPUParticles *m_gpuParticles;
 
   wxString m_Message;
   wxString m_Message_Hiden;
@@ -369,6 +385,7 @@ private:
 
   ParticleMap *m_ParticleMap;
   wxTimer m_tParticleTimer;
+  wxTimer m_gpuAnimTimer;  // dedicated timer for GPU particle animation
   bool m_bUpdateParticles;
 
   LineBuffer m_WindArrowCache[14];
