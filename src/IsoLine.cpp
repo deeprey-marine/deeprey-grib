@@ -395,21 +395,11 @@ void IsoLine::drawIsoLine(GRIBOverlayFactory *pof, wxDC *dc,
     dc->SetPen(ppISO);
   } else { /* opengl */
 #ifdef ocpnUSE_GL
-    // #ifndef USE_ANDROID_GLES2
-    //            if(m_pixelMM > 0.2){        // pixel size large enough to
-    //            render well
-    //            //      Enable anti-aliased lines, at best quality
-    //              glEnable( GL_LINE_SMOOTH );
-    //              glEnable( GL_BLEND );
-    //              glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-    //              glHint( GL_LINE_SMOOTH_HINT, GL_NICEST );
-    //              glLineWidth( 2 );
-    //            }
-    //            else{
-    //              glLineWidth( 0.4/m_pixelMM);        //  set a target line
-    //              width by MM
-    //            }
-    // #else
+    glEnable(GL_LINE_SMOOTH);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+
     if (pof->m_oDC) {
       wxPen ppISO(isoLineColor, 2);
       pof->m_oDC->SetPen(ppISO);
@@ -518,15 +508,14 @@ void IsoLine::drawIsoLine(GRIBOverlayFactory *pof, wxDC *dc,
         chainNode = chainNode->GetNext();
       }
     }
+
+    glDisable(GL_LINE_SMOOTH);
 #endif
   }
 
 #if wxUSE_GRAPHICS_CONTEXT
   delete pgc;
 #endif
-
-  //      if(!dc) /* opengl */
-  //          glEnd();
 }
 
 //---------------------------------------------------------------
