@@ -40,6 +40,7 @@ DpGribGPUParticles::DpGribGPUParticles()
       m_trailIndex(0),
       m_windTexU(0),
       m_windTexV(0),
+      m_wavePerTex(0),
       m_windNi(0),
       m_windNj(0),
       m_randomTex(0),
@@ -63,6 +64,8 @@ DpGribGPUParticles::DpGribGPUParticles()
       m_lastRefScreenY(0),
       m_lastGRX(nullptr),
       m_lastGRY(nullptr),
+      m_lastGRPer(nullptr),
+      m_waveMode(false),
       m_spawnLonMin(0),
       m_spawnLonMax(0),
       m_spawnLatMin(0),
@@ -317,6 +320,34 @@ void DpGribGPUParticles::UploadWindData(GribRecord *pGRX, GribRecord *pGRY) {
 }
 
 // ============================================================================
+// Wave Period Data Upload
+// ============================================================================
+
+void DpGribGPUParticles::UploadWavePeriodData(GribRecord *pGRPer) {
+  int Ni = pGRPer->getNi();
+  int Nj = pGRPer->getNj();
+  bool flipJ = (pGRPer->getDj() < 0);
+
+  std::vector<float> perData(Ni * Nj);
+  for (int j = 0; j < Nj; j++) {
+    int srcJ = flipJ ? (Nj - 1 - j) : j;
+    for (int i = 0; i < Ni; i++) {
+      double val = pGRPer->getValue(i, srcJ);
+      perData[j * Ni + i] = (val == GRIB_NOTDEF) ? 0.0f : (float)val;
+    }
+  }
+
+  if (!m_wavePerTex) glGenTextures(1, &m_wavePerTex);
+  glBindTexture(GL_TEXTURE_2D, m_wavePerTex);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, Ni, Nj, 0, GL_RED, GL_FLOAT,
+               perData.data());
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+}
+
+// ============================================================================
 // Viewport Change Handling
 // ============================================================================
 
@@ -396,6 +427,10 @@ void DpGribGPUParticles::DestroyTextures() {
     glDeleteTextures(1, &m_windTexV);
     m_windTexV = 0;
   }
+  if (m_wavePerTex) {
+    glDeleteTextures(1, &m_wavePerTex);
+    m_wavePerTex = 0;
+  }
   if (m_randomTex) {
     glDeleteTextures(1, &m_randomTex);
     m_randomTex = 0;
@@ -410,6 +445,7 @@ void DpGribGPUParticles::Reset() {
   ClearTrailFBOs();
   m_lastGRX = nullptr;
   m_lastGRY = nullptr;
+  m_lastGRPer = nullptr;
   m_frameCount = 0;
 }
 
@@ -420,7 +456,8 @@ void DpGribGPUParticles::Reset() {
 void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
                                 int settings,
                                 GribOverlaySettings &overlaySettings,
-                                PlugIn_ViewPort *vp) {
+                                PlugIn_ViewPort *vp,
+                                GribRecord *pGRPeriod) {
   if (!m_initialized || !pGRX || !pGRY) return;
 
   // Save GL state that Update modifies (FBO, texture bindings)
@@ -429,6 +466,9 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
   GLint savedTex;
   glGetIntegerv(GL_TEXTURE_BINDING_2D, &savedTex);
 
+  // Detect wave mode
+  m_waveMode = (settings == GribOverlaySettings::WAVE);
+
   // Upload wind data if GribRecords changed
   if (pGRX != m_lastGRX || pGRY != m_lastGRY) {
     UploadWindData(pGRX, pGRY);
@@ -436,9 +476,16 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
     m_lastGRY = pGRY;
   }
 
-  // Compute zoom-adaptive speed factor
+  // Upload wave period texture when available and changed
+  if (m_waveMode && pGRPeriod && pGRPeriod != m_lastGRPer) {
+    UploadWavePeriodData(pGRPeriod);
+    m_lastGRPer = pGRPeriod;
+  }
+
+  // Compute zoom-adaptive speed factor (waves slower than wind)
   if (vp->view_scale_ppm > 0) {
-    m_speedFactor = 0.2f / (float)vp->view_scale_ppm;
+    float baseFactor = m_waveMode ? 0.1f : 0.2f;
+    m_speedFactor = baseFactor / (float)vp->view_scale_ppm;
     m_speedFactor = wxMin(m_speedFactor, 50000.0f);
     m_speedFactor = wxMax(m_speedFactor, 0.001f);
   }
@@ -470,12 +517,13 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
   visibleFraction = wxMin(visibleFraction, 1.0);
   visibleFraction = wxMax(visibleFraction, 0.001);
 
-  // Base: ~1 particle per 3000 screen pixels, scaled by visible fraction
-  // When zoomed out (fraction~1): full density
-  // When zoomed in (fraction~0.01): far fewer particles
+  // Base: ~1 particle per N screen pixels, scaled by visible fraction
+  // Waves use fewer particles (1 per 10000px) than wind (1 per 3000px)
+  double pixelsPerParticle = m_waveMode ? 20000.0 : 3000.0;
+  int maxParticles = m_waveMode ? 400 : 3000;
   double zoomScale = sqrt(visibleFraction);
-  int targetCount = (int)(screenPixels / 3000.0 * density * zoomScale);
-  targetCount = wxMin(targetCount, 3000);
+  int targetCount = (int)(screenPixels / pixelsPerParticle * density * zoomScale);
+  targetCount = wxMin(targetCount, maxParticles);
   targetCount = wxMax(targetCount, 50);
 
   int side = (int)ceil(sqrt((double)targetCount));
@@ -529,8 +577,8 @@ void DpGribGPUParticles::Render(PlugIn_ViewPort *vp) {
   GLint savedActiveTexture;
   glGetIntegerv(GL_ACTIVE_TEXTURE, &savedActiveTexture);
 
-  GLint savedTex[4];
-  for (int i = 0; i < 4; i++) {
+  GLint savedTex[5];
+  for (int i = 0; i < 5; i++) {
     glActiveTexture(GL_TEXTURE0 + i);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &savedTex[i]);
   }
@@ -580,7 +628,7 @@ void DpGribGPUParticles::Render(PlugIn_ViewPort *vp) {
     glDisable(GL_BLEND);
   glBlendFunc(savedBlendSrc, savedBlendDst);
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     glActiveTexture(GL_TEXTURE0 + i);
     glBindTexture(GL_TEXTURE_2D, savedTex[i]);
   }
@@ -645,9 +693,18 @@ void DpGribGPUParticles::UpdateParticleState() {
   glUniform4f(glGetUniformLocation(prog, "uSpawnBounds"), m_spawnLonMin,
               m_spawnLonMax, m_spawnLatMin, m_spawnLatMax);
 
+  // Wave mode uniforms
+  glUniform1i(glGetUniformLocation(prog, "uWaveMode"), m_waveMode ? 1 : 0);
+  if (m_waveMode && m_wavePerTex) {
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, m_wavePerTex);
+    glUniform1i(glGetUniformLocation(prog, "uWavePeriod"), 4);
+  }
+
   // Animation uniforms — speed divided by sub-steps for smooth trails
   static const int SUB_STEPS = 4;
-  glUniform1f(glGetUniformLocation(prog, "uMaxAge"), 80.0f);
+  float maxAge = m_waveMode ? 50.0f : 80.0f;
+  glUniform1f(glGetUniformLocation(prog, "uMaxAge"), maxAge);
   glUniform1f(glGetUniformLocation(prog, "uDropRate"), 0.003f);
   glUniform1f(glGetUniformLocation(prog, "uDropRateBump"), 0.01f);
   glUniform1f(glGetUniformLocation(prog, "uSpeedFactor"),
@@ -680,7 +737,8 @@ void DpGribGPUParticles::DecayTrails(PlugIn_ViewPort *vp) {
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, m_trailTexture[m_trailIndex]);
   glUniform1i(glGetUniformLocation(decayProg, "uTrailTex"), 0);
-  glUniform1f(glGetUniformLocation(decayProg, "uDecay"), 0.96f);
+  float decay = m_waveMode ? 0.85f : 0.96f;
+  glUniform1f(glGetUniformLocation(decayProg, "uDecay"), decay);
 
   // Compute pan offset for smooth trail shifting
   float panOffsetX = 0.0f, panOffsetY = 0.0f;
@@ -749,16 +807,51 @@ void DpGribGPUParticles::DrawParticles(PlugIn_ViewPort *vp) {
   glUniform1f(glGetUniformLocation(drawProg, "uRotation"),
               (float)vp->rotation);
 
+  float maxAge = m_waveMode ? 50.0f : 80.0f;
   glUniform1f(glGetUniformLocation(drawProg, "uMaxSpeed"), 25.0f);
-  glUniform1f(glGetUniformLocation(drawProg, "uMaxAge"), 80.0f);
+  glUniform1f(glGetUniformLocation(drawProg, "uMaxAge"), maxAge);
+
+  // Wave mode uniform and textures
+  glUniform1i(glGetUniformLocation(drawProg, "uWaveMode"), m_waveMode ? 1 : 0);
+  if (m_waveMode) {
+    // Bind wind textures for direction lookup in draw shader
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, m_windTexU);
+    glUniform1i(glGetUniformLocation(drawProg, "uWindU"), 2);
+
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, m_windTexV);
+    glUniform1i(glGetUniformLocation(drawProg, "uWindV"), 3);
+
+    if (m_wavePerTex) {
+      glActiveTexture(GL_TEXTURE4);
+      glBindTexture(GL_TEXTURE_2D, m_wavePerTex);
+      glUniform1i(glGetUniformLocation(drawProg, "uWavePeriod"), 4);
+    }
+
+    // Grid uniforms for direction texture lookup
+    glUniform2f(glGetUniformLocation(drawProg, "uGridOrigin"), m_gridLo1,
+                m_gridLa1);
+    glUniform2f(glGetUniformLocation(drawProg, "uGridSpacing"), m_gridDi,
+                m_gridDj);
+    glUniform2i(glGetUniformLocation(drawProg, "uGridSize"), m_windNi,
+                m_windNj);
+
+    // Zoom-adaptive crest scale: smaller when zoomed out, larger when zoomed in
+    // view_scale_ppm ~1e-5 zoomed out, ~1e-3 zoomed in
+    float crestScale = (float)(sqrt(vp->view_scale_ppm) * 300.0);
+    crestScale = wxMin(crestScale, 1.0f);
+    crestScale = wxMax(crestScale, 0.3f);
+    glUniform1f(glGetUniformLocation(drawProg, "uWaveCrestScale"), crestScale);
+  }
 
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE);  // additive blending
 
   glEnable(GL_LINE_SMOOTH);
-  glLineWidth(3.0f);
+  glLineWidth(m_waveMode ? 1.5f : 3.0f);
 
-  // 2 vertices per particle (tail + head), drawn as GL_LINES
+  // GL_LINES: 2 vertices per particle
   glBindVertexArray(m_quadVAO);
   glDrawArrays(GL_LINES, 0, m_totalParticles * 2);
   glBindVertexArray(0);

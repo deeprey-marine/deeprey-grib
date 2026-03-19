@@ -2103,7 +2103,9 @@ void GRIBOverlayFactory::DrawNumbers(wxPoint p, double value, int settings,
 
 void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
                                              PlugIn_ViewPort *vp) {
-  if (!m_Settings.Settings[settings].m_bParticles) return;
+  if (settings != GribOverlaySettings::WAVE &&
+      !m_Settings.Settings[settings].m_bParticles)
+    return;
 
   //   need two records or a polar record to draw arrows
   GribRecord *pGRX, *pGRY;
@@ -2119,7 +2121,10 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
 
   // GPU particle path
   if (m_bUseGPURenderer && m_gpuParticles) {
-    m_gpuParticles->Update(pGRX, pGRY, settings, m_Settings, vp);
+    GribRecord *pGRPeriod = nullptr;
+    if (settings == GribOverlaySettings::WAVE)
+      pGRPeriod = pGR[Idx_WVPER];
+    m_gpuParticles->Update(pGRX, pGRY, settings, m_Settings, vp, pGRPeriod);
     m_gpuParticles->Render(vp);
     ScheduleGPUParticleRefresh();
     return;

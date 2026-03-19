@@ -24,7 +24,8 @@ public:
 
   bool Initialize(const DpGribGLCapabilities &caps);
   void Update(GribRecord *pGRX, GribRecord *pGRY, int settings,
-              GribOverlaySettings &overlaySettings, PlugIn_ViewPort *vp);
+              GribOverlaySettings &overlaySettings, PlugIn_ViewPort *vp,
+              GribRecord *pGRPeriod = nullptr);
   void Render(PlugIn_ViewPort *vp);
   void Reset();
 
@@ -44,6 +45,7 @@ private:
 
   // Data management
   void UploadWindData(GribRecord *pGRX, GribRecord *pGRY);
+  void UploadWavePeriodData(GribRecord *pGRPer);
   void HandleViewportChange(PlugIn_ViewPort *vp);
   void ClearTrailFBOs();
 
@@ -68,6 +70,7 @@ private:
 
   // Wind field textures (R32F)
   GLuint m_windTexU, m_windTexV;
+  GLuint m_wavePerTex;  // R32F texture for wave period data
   int m_windNi, m_windNj;
 
   // Random seed texture (RGBA32F)
@@ -93,6 +96,10 @@ private:
   // GribRecord change detection
   GribRecord *m_lastGRX;
   GribRecord *m_lastGRY;
+  GribRecord *m_lastGRPer;
+
+  // Wave mode state
+  bool m_waveMode;
 
   // Zoom-adaptive spawn bounds (visible area clamped to grid)
   float m_spawnLonMin, m_spawnLonMax;
