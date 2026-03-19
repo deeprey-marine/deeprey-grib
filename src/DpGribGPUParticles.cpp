@@ -63,6 +63,10 @@ DpGribGPUParticles::DpGribGPUParticles()
       m_lastRefScreenY(0),
       m_lastGRX(nullptr),
       m_lastGRY(nullptr),
+      m_spawnLonMin(0),
+      m_spawnLonMax(0),
+      m_spawnLatMin(0),
+      m_spawnLatMax(0),
       m_frameCount(0),
       m_density(0),
       m_speedFactor(100.0f) {
@@ -166,11 +170,16 @@ bool DpGribGPUParticles::CreateParticleStateTextures(int texSize) {
   m_particleTexSize = texSize;
   m_totalParticles = texSize * texSize;
 
-  // Generate initial random particle positions
+  // Generate initial random particle positions within visible spawn bounds
+  float sLonMin = m_spawnLonMin != 0 ? m_spawnLonMin : m_gridLonMin;
+  float sLonMax = m_spawnLonMax != 0 ? m_spawnLonMax : m_gridLonMax;
+  float sLatMin = m_spawnLatMin != 0 ? m_spawnLatMin : m_gridLatMin;
+  float sLatMax = m_spawnLatMax != 0 ? m_spawnLatMax : m_gridLatMax;
+
   std::vector<float> initialState(m_totalParticles * 4);
   for (int i = 0; i < m_totalParticles; i++) {
-    initialState[i * 4 + 0] = RandFloat(m_gridLonMin, m_gridLonMax);
-    initialState[i * 4 + 1] = RandFloat(m_gridLatMin, m_gridLatMax);
+    initialState[i * 4 + 0] = RandFloat(sLonMin, sLonMax);
+    initialState[i * 4 + 1] = RandFloat(sLatMin, sLatMax);
     initialState[i * 4 + 2] = RandFloat(0.0f, 80.0f * 0.3f);
     initialState[i * 4 + 3] = 0.0f;
   }
@@ -414,27 +423,53 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
                                 PlugIn_ViewPort *vp) {
   if (!m_initialized || !pGRX || !pGRY) return;
 
+  // Save GL state that Update modifies (FBO, texture bindings)
+  GLint savedFBO;
+  glGetIntegerv(GL_FRAMEBUFFER_BINDING, &savedFBO);
+  GLint savedTex;
+  glGetIntegerv(GL_TEXTURE_BINDING_2D, &savedTex);
+
   // Upload wind data if GribRecords changed
   if (pGRX != m_lastGRX || pGRY != m_lastGRY) {
     UploadWindData(pGRX, pGRY);
     m_lastGRX = pGRX;
     m_lastGRY = pGRY;
+  }
 
-    // Compute particle count from density
-    double density = overlaySettings.Settings[settings].m_dParticleDensity;
-    int targetCount = (int)(density * pGRX->getNi() * pGRY->getNj());
-    targetCount = wxMin(targetCount, 80000);
-    targetCount = wxMax(targetCount, 200);
+  // Compute zoom-adaptive speed factor
+  if (vp->view_scale_ppm > 0) {
+    m_speedFactor = 0.2f / (float)vp->view_scale_ppm;
+    m_speedFactor = wxMin(m_speedFactor, 50000.0f);
+    m_speedFactor = wxMax(m_speedFactor, 0.001f);
+  }
 
-    int side = (int)ceil(sqrt((double)targetCount));
-    side = wxMax(side, 16);
-    side = wxMin(side, 283);
+  // Compute visible spawn bounds from viewport (approximate Mercator inverse)
+  if (vp->view_scale_ppm > 0) {
+    double halfWDeg =
+        (vp->pix_width * 0.5) / (vp->view_scale_ppm * 111320.0);
+    double halfHDeg =
+        (vp->pix_height * 0.5) / (vp->view_scale_ppm * 110540.0);
+    m_spawnLonMin = wxMax((float)(vp->clon - halfWDeg), m_gridLonMin);
+    m_spawnLonMax = wxMin((float)(vp->clon + halfWDeg), m_gridLonMax);
+    m_spawnLatMin = wxMax((float)(vp->clat - halfHDeg), m_gridLatMin);
+    m_spawnLatMax = wxMin((float)(vp->clat + halfHDeg), m_gridLatMax);
+  }
 
-    if (side != m_particleTexSize) {
-      CreateParticleStateTextures(side);
-      GenerateRandomSeedTexture(side);
-      ClearTrailFBOs();
-    }
+  // Screen-based particle count — well-spaced like TimeZero
+  double density = overlaySettings.Settings[settings].m_dParticleDensity;
+  int screenPixels = vp->pix_width * vp->pix_height;
+  int targetCount = (int)(screenPixels / 2000.0 * density);
+  targetCount = wxMin(targetCount, 4000);
+  targetCount = wxMax(targetCount, 100);
+
+  int side = (int)ceil(sqrt((double)targetCount));
+  side = wxMax(side, 16);
+  side = wxMin(side, 283);
+
+  if (side != m_particleTexSize) {
+    CreateParticleStateTextures(side);
+    GenerateRandomSeedTexture(side);
+    ClearTrailFBOs();
   }
 
   // Create trail FBOs on first call or resize
@@ -444,21 +479,9 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
 
   HandleViewportChange(vp);
 
-  // Compute zoom-adaptive speed factor
-  // Goal: ~2 screen pixels per frame at 10 m/s wind speed
-  // pixel_disp = u * speedFactor * view_scale_ppm (after Mercator projection)
-  // 2.0 = 10.0 * speedFactor * ppm => speedFactor = 0.2 / ppm
-  if (vp->view_scale_ppm > 0) {
-    m_speedFactor = 0.2f / (float)vp->view_scale_ppm;
-    // Clamp to sane range
-    m_speedFactor = wxMin(m_speedFactor, 500000.0f);
-    m_speedFactor = wxMax(m_speedFactor, 1.0f);
-  }
-
-  if (m_frameCount % 100 == 0) {
-    printf("GRIB GPU: frame=%d ppm=%.6f speedFactor=%.1f particles=%d\n",
-           m_frameCount, vp->view_scale_ppm, m_speedFactor, m_totalParticles);
-  }
+  // Restore GL state
+  glBindFramebuffer(GL_FRAMEBUFFER, savedFBO);
+  glBindTexture(GL_TEXTURE_2D, savedTex);
 
   // Don't run update if state textures aren't ready
   if (!m_stateTexture[0] || !m_stateFBO[0]) return;
@@ -509,11 +532,19 @@ void DpGribGPUParticles::Render(PlugIn_ViewPort *vp) {
   glDisable(GL_DEPTH_TEST);
   glDisable(GL_SCISSOR_TEST);
 
-  // ===== PASS 1: UPDATE PARTICLE STATE =====
-  UpdateParticleState();
+  static const int SUB_STEPS = 4;
 
-  // ===== PASS 2: ACCUMULATE TRAILS =====
-  AccumulateTrails(vp);
+  // ===== PASS 1: DECAY TRAIL FBO (once per frame) =====
+  DecayTrails(vp);
+
+  // ===== PASS 2: SUB-STEP LOOP (update + draw N times) =====
+  for (int step = 0; step < SUB_STEPS; step++) {
+    UpdateParticleState();
+    DrawParticles(vp);
+  }
+
+  // Swap trail ping-pong
+  m_trailIndex = 1 - m_trailIndex;
 
   // ===== PASS 3: COMPOSITE TO SCREEN =====
   glBindFramebuffer(GL_FRAMEBUFFER, savedFBO);
@@ -594,11 +625,17 @@ void DpGribGPUParticles::UpdateParticleState() {
   glUniform4f(glGetUniformLocation(prog, "uGridBounds"), m_gridLonMin,
               m_gridLonMax, m_gridLatMin, m_gridLatMax);
 
-  // Animation uniforms
+  // Spawn bounds (visible area clamped to grid)
+  glUniform4f(glGetUniformLocation(prog, "uSpawnBounds"), m_spawnLonMin,
+              m_spawnLonMax, m_spawnLatMin, m_spawnLatMax);
+
+  // Animation uniforms — speed divided by sub-steps for smooth trails
+  static const int SUB_STEPS = 4;
   glUniform1f(glGetUniformLocation(prog, "uMaxAge"), 80.0f);
   glUniform1f(glGetUniformLocation(prog, "uDropRate"), 0.003f);
   glUniform1f(glGetUniformLocation(prog, "uDropRateBump"), 0.01f);
-  glUniform1f(glGetUniformLocation(prog, "uSpeedFactor"), m_speedFactor);
+  glUniform1f(glGetUniformLocation(prog, "uSpeedFactor"),
+              m_speedFactor / (float)SUB_STEPS);
   glUniform1f(glGetUniformLocation(prog, "uRandomSeed"),
               (float)(m_frameCount % 10000) * 0.001f);
 
@@ -612,16 +649,15 @@ void DpGribGPUParticles::UpdateParticleState() {
 }
 
 // ============================================================================
-// Pass 2: Trail Accumulation (decay + draw particles)
+// Decay Trails — fade previous trail FBO (called once per frame)
 // ============================================================================
 
-void DpGribGPUParticles::AccumulateTrails(PlugIn_ViewPort *vp) {
+void DpGribGPUParticles::DecayTrails(PlugIn_ViewPort *vp) {
   int writeIdx = 1 - m_trailIndex;
 
   glBindFramebuffer(GL_FRAMEBUFFER, m_trailFBO[writeIdx]);
   glViewport(0, 0, m_fboWidth, m_fboHeight);
 
-  // --- Sub-pass A: Decay previous trail ---
   GLuint decayProg = grib_trail_decay_program;
   glUseProgram(decayProg);
 
@@ -640,10 +676,9 @@ void DpGribGPUParticles::AccumulateTrails(PlugIn_ViewPort *vp) {
     double dy = refPt.y - m_lastRefScreenY;
     if (fabs(dx) < m_fboWidth * 0.5 && fabs(dy) < m_fboHeight * 0.5) {
       panOffsetX = (float)(dx / m_fboWidth);
-      panOffsetY = (float)(-dy / m_fboHeight);  // flip Y for texture coords
+      panOffsetY = (float)(-dy / m_fboHeight);
     }
   }
-  // Update reference point for next frame
   {
     wxPoint refPt;
     GetCanvasPixLL(vp, &refPt, (m_gridLatMin + m_gridLatMax) * 0.5,
@@ -660,14 +695,31 @@ void DpGribGPUParticles::AccumulateTrails(PlugIn_ViewPort *vp) {
   glBindVertexArray(m_quadVAO);
   glDrawArrays(GL_TRIANGLES, 0, 6);
   glBindVertexArray(0);
+}
 
-  // --- Sub-pass B: Draw particles as points ---
+// ============================================================================
+// Draw Particles — line segments from previous to current position
+// ============================================================================
+
+void DpGribGPUParticles::DrawParticles(PlugIn_ViewPort *vp) {
+  // Draw to the same trail FBO that DecayTrails wrote to
+  int writeIdx = 1 - m_trailIndex;
+  glBindFramebuffer(GL_FRAMEBUFFER, m_trailFBO[writeIdx]);
+  glViewport(0, 0, m_fboWidth, m_fboHeight);
+
   GLuint drawProg = grib_particle_draw_program;
   glUseProgram(drawProg);
 
+  // Current state texture (head position)
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, m_stateTexture[m_stateIndex]);
   glUniform1i(glGetUniformLocation(drawProg, "uStateTex"), 0);
+
+  // Previous state texture (tail position)
+  glActiveTexture(GL_TEXTURE1);
+  glBindTexture(GL_TEXTURE_2D, m_stateTexture[1 - m_stateIndex]);
+  glUniform1i(glGetUniformLocation(drawProg, "uPrevStateTex"), 1);
+
   glUniform1i(glGetUniformLocation(drawProg, "uParticleTexSize"),
               m_particleTexSize);
 
@@ -682,22 +734,20 @@ void DpGribGPUParticles::AccumulateTrails(PlugIn_ViewPort *vp) {
               (float)vp->rotation);
 
   glUniform1f(glGetUniformLocation(drawProg, "uMaxSpeed"), 25.0f);
-  glUniform1f(glGetUniformLocation(drawProg, "uMinPointSize"), 1.0f);
-  glUniform1f(glGetUniformLocation(drawProg, "uMaxPointSize"), 4.0f);
   glUniform1f(glGetUniformLocation(drawProg, "uMaxAge"), 80.0f);
 
   glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE);  // additive blending for glow
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE);  // additive blending
 
-  glEnable(GL_PROGRAM_POINT_SIZE);
+  glEnable(GL_LINE_SMOOTH);
+  glLineWidth(3.0f);
 
-  glBindVertexArray(m_quadVAO);  // bind any VAO (we use gl_VertexID only)
-  glDrawArrays(GL_POINTS, 0, m_totalParticles);
+  // 2 vertices per particle (tail + head), drawn as GL_LINES
+  glBindVertexArray(m_quadVAO);
+  glDrawArrays(GL_LINES, 0, m_totalParticles * 2);
   glBindVertexArray(0);
 
-  glDisable(GL_PROGRAM_POINT_SIZE);
-
-  m_trailIndex = writeIdx;
+  glDisable(GL_LINE_SMOOTH);
 }
 
 // ============================================================================

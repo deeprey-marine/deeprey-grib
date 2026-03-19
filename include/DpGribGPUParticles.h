@@ -38,7 +38,8 @@ private:
 
   // Per-frame GPU passes
   void UpdateParticleState();
-  void AccumulateTrails(PlugIn_ViewPort *vp);
+  void DecayTrails(PlugIn_ViewPort *vp);
+  void DrawParticles(PlugIn_ViewPort *vp);
   void CompositeToScreen(PlugIn_ViewPort *vp);
 
   // Data management
@@ -92,6 +93,10 @@ private:
   // GribRecord change detection
   GribRecord *m_lastGRX;
   GribRecord *m_lastGRY;
+
+  // Zoom-adaptive spawn bounds (visible area clamped to grid)
+  float m_spawnLonMin, m_spawnLonMax;
+  float m_spawnLatMin, m_spawnLatMax;
 
   // Animation state
   int m_frameCount;
