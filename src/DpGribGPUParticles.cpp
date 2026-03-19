@@ -455,12 +455,28 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
     m_spawnLatMax = wxMin((float)(vp->clat + halfHDeg), m_gridLatMax);
   }
 
-  // Screen-based particle count — well-spaced like TimeZero
+  // Zoom-adaptive particle count — fewer when zoomed in, more when zoomed out
   double density = overlaySettings.Settings[settings].m_dParticleDensity;
   int screenPixels = vp->pix_width * vp->pix_height;
-  int targetCount = (int)(screenPixels / 2000.0 * density);
-  targetCount = wxMin(targetCount, 4000);
-  targetCount = wxMax(targetCount, 100);
+
+  // Compute what fraction of the GRIB grid is visible
+  double gridLonSpan = m_gridLonMax - m_gridLonMin;
+  double gridLatSpan = m_gridLatMax - m_gridLatMin;
+  double visLonSpan = m_spawnLonMax - m_spawnLonMin;
+  double visLatSpan = m_spawnLatMax - m_spawnLatMin;
+  double visibleFraction = 1.0;
+  if (gridLonSpan > 0 && gridLatSpan > 0)
+    visibleFraction = (visLonSpan * visLatSpan) / (gridLonSpan * gridLatSpan);
+  visibleFraction = wxMin(visibleFraction, 1.0);
+  visibleFraction = wxMax(visibleFraction, 0.001);
+
+  // Base: ~1 particle per 3000 screen pixels, scaled by visible fraction
+  // When zoomed out (fraction~1): full density
+  // When zoomed in (fraction~0.01): far fewer particles
+  double zoomScale = sqrt(visibleFraction);
+  int targetCount = (int)(screenPixels / 3000.0 * density * zoomScale);
+  targetCount = wxMin(targetCount, 3000);
+  targetCount = wxMax(targetCount, 50);
 
   int side = (int)ceil(sqrt((double)targetCount));
   side = wxMax(side, 16);

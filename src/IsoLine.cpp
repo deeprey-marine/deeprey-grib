@@ -417,51 +417,108 @@ void IsoLine::drawIsoLine(GRIBOverlayFactory *pof, wxDC *dc,
 #endif
   }
 
-  std::list<Segment *>::iterator it;
+  if (dc) {
+    // DC path: draw raw segments (bitmap rendering)
+    std::list<Segment *>::iterator it;
+    for (it = trace.begin(); it != trace.end(); it++) {
+      Segment *seg = *it;
 
-  //---------------------------------------------------------
-  // Dessine les segments
-  //---------------------------------------------------------
-  for (it = trace.begin(); it != trace.end(); it++) {
-    Segment *seg = *it;
+      wxPoint ab;
+      GetCanvasPixLL(vp, &ab, seg->py1, seg->px1);
+      wxPoint cd;
+      GetCanvasPixLL(vp, &cd, seg->py2, seg->px2);
 
-    if (vp->m_projection_type == PI_PROJECTION_MERCATOR ||
-        vp->m_projection_type == PI_PROJECTION_EQUIRECTANGULAR) {
-      /* skip segments that go the wrong way around the world */
-      double sx1 = seg->px1, sx2 = seg->px2;
-      if (sx2 - sx1 > 180)
-        sx2 -= 360;
-      else if (sx1 - sx2 > 180)
-        sx1 -= 360;
-
-      if ((sx1 + 180 < vp->clon && sx2 + 180 > vp->clon) ||
-          (sx1 + 180 > vp->clon && sx2 + 180 < vp->clon) ||
-          (sx1 - 180 < vp->clon && sx2 - 180 > vp->clon) ||
-          (sx1 - 180 > vp->clon && sx2 - 180 < vp->clon))
-        continue;
-    }
-
-    wxPoint ab;
-    GetCanvasPixLL(vp, &ab, seg->py1, seg->px1);
-    wxPoint cd;
-    GetCanvasPixLL(vp, &cd, seg->py2, seg->px2);
-
-    if (dc) {
 #if wxUSE_GRAPHICS_CONTEXT
       if (bHiDef && pgc)
         pgc->StrokeLine(ab.x, ab.y, cd.x, cd.y);
       else
 #endif
         dc->DrawLine(ab.x, ab.y, cd.x, cd.y);
-    } else { /* opengl */
-#ifdef ocpnUSE_GL
-
-      if (pof->m_oDC) {
-        pof->m_oDC->DrawLine(ab.x, ab.y, cd.x, cd.y);
-      }
-
-#endif
     }
+  } else { /* opengl — draw smooth polylines from chained segments */
+#ifdef ocpnUSE_GL
+    if (pof->m_oDC) {
+      MySegListList::Node *chainNode = m_SegListList.GetFirst();
+      while (chainNode) {
+        MySegList *chain = chainNode->GetData();
+        if (!chain || chain->GetCount() < 1) {
+          chainNode = chainNode->GetNext();
+          continue;
+        }
+
+        // Collect geo points (double precision) from chain
+        std::vector<double> geoLon, geoLat;
+        geoLon.reserve(chain->GetCount() + 1);
+        geoLat.reserve(chain->GetCount() + 1);
+
+        MySegList::Node *segNode = chain->GetFirst();
+        bool first = true;
+        bool skipChain = false;
+        while (segNode) {
+          Segment *seg = segNode->GetData();
+
+          if (first) {
+            if (vp->m_projection_type == PI_PROJECTION_MERCATOR ||
+                vp->m_projection_type == PI_PROJECTION_EQUIRECTANGULAR) {
+              double sx1 = seg->px1, sx2 = seg->px2;
+              if (sx2 - sx1 > 180) sx2 -= 360;
+              else if (sx1 - sx2 > 180) sx1 -= 360;
+              if ((sx1 + 180 < vp->clon && sx2 + 180 > vp->clon) ||
+                  (sx1 + 180 > vp->clon && sx2 + 180 < vp->clon) ||
+                  (sx1 - 180 < vp->clon && sx2 - 180 > vp->clon) ||
+                  (sx1 - 180 > vp->clon && sx2 - 180 < vp->clon)) {
+                skipChain = true;
+                break;
+              }
+            }
+            geoLon.push_back(seg->px1);
+            geoLat.push_back(seg->py1);
+            first = false;
+          }
+
+          geoLon.push_back(seg->px2);
+          geoLat.push_back(seg->py2);
+          segNode = segNode->GetNext();
+        }
+
+        if (skipChain || geoLon.size() < 2) {
+          chainNode = chainNode->GetNext();
+          continue;
+        }
+
+        // Chaikin's corner-cutting in geo space (4 iterations for smooth curves)
+        for (int iter = 0; iter < 4; iter++) {
+          if (geoLon.size() < 3) break;
+          size_t n = geoLon.size();
+          std::vector<double> sLon, sLat;
+          sLon.reserve(n * 2);
+          sLat.reserve(n * 2);
+          sLon.push_back(geoLon.front());
+          sLat.push_back(geoLat.front());
+          for (size_t i = 0; i + 1 < n; i++) {
+            sLon.push_back(0.75 * geoLon[i] + 0.25 * geoLon[i + 1]);
+            sLat.push_back(0.75 * geoLat[i] + 0.25 * geoLat[i + 1]);
+            sLon.push_back(0.25 * geoLon[i] + 0.75 * geoLon[i + 1]);
+            sLat.push_back(0.25 * geoLat[i] + 0.75 * geoLat[i + 1]);
+          }
+          sLon.push_back(geoLon.back());
+          sLat.push_back(geoLat.back());
+          geoLon.swap(sLon);
+          geoLat.swap(sLat);
+        }
+
+        // Convert smoothed geo points to screen pixels
+        std::vector<wxPoint> pts(geoLon.size());
+        for (size_t i = 0; i < geoLon.size(); i++) {
+          GetCanvasPixLL(vp, &pts[i], geoLat[i], geoLon[i]);
+        }
+
+        pof->m_oDC->DrawLines(pts.size(), pts.data(), 0, 0, true);
+
+        chainNode = chainNode->GetNext();
+      }
+    }
+#endif
   }
 
 #if wxUSE_GRAPHICS_CONTEXT
