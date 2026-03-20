@@ -22,6 +22,7 @@ struct DpGribGLCapabilities {
 extern GLuint grib_particle_update_program;
 extern GLuint grib_trail_decay_program;
 extern GLuint grib_particle_draw_program;
+extern GLuint grib_ribbon_draw_program;
 extern GLuint grib_trail_composite_program;
 
 // Detect runtime GL capabilities

@@ -46,6 +46,9 @@ DpGribGPUParticles::DpGribGPUParticles()
       m_randomTex(0),
       m_quadVAO(0),
       m_quadVBO(0),
+      m_trailArrayTex(0),
+      m_trailWriteIdx(0),
+      m_validTrailCount(0),
       m_gridLo1(0),
       m_gridLa1(0),
       m_gridDi(0),
@@ -72,7 +75,8 @@ DpGribGPUParticles::DpGribGPUParticles()
       m_spawnLatMax(0),
       m_frameCount(0),
       m_density(0),
-      m_speedFactor(100.0f) {
+      m_speedFactor(100.0f),
+      m_subSteps(4) {
   m_stateTexture[0] = m_stateTexture[1] = 0;
   m_stateFBO[0] = m_stateFBO[1] = 0;
   m_trailTexture[0] = m_trailTexture[1] = 0;
@@ -82,6 +86,7 @@ DpGribGPUParticles::DpGribGPUParticles()
 DpGribGPUParticles::~DpGribGPUParticles() {
   DestroyFBOs();
   DestroyTextures();
+  DestroyTrailArrayTexture();
   if (m_quadVBO) glDeleteBuffers(1, &m_quadVBO);
   if (m_quadVAO) glDeleteVertexArrays(1, &m_quadVAO);
 }
@@ -391,6 +396,50 @@ void DpGribGPUParticles::ClearTrailFBOs() {
 }
 
 // ============================================================================
+// Trail History Array (wind mode ribbon rendering)
+// ============================================================================
+
+void DpGribGPUParticles::CreateTrailArrayTexture(int texSize) {
+  DestroyTrailArrayTexture();
+
+  glGenTextures(1, &m_trailArrayTex);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, m_trailArrayTex);
+  glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA32F, texSize, texSize, TRAIL_LEN,
+               0, GL_RGBA, GL_FLOAT, nullptr);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+  m_trailWriteIdx = 0;
+  m_validTrailCount = 0;
+}
+
+void DpGribGPUParticles::DestroyTrailArrayTexture() {
+  if (m_trailArrayTex) {
+    glDeleteTextures(1, &m_trailArrayTex);
+    m_trailArrayTex = 0;
+  }
+  m_trailWriteIdx = 0;
+  m_validTrailCount = 0;
+}
+
+void DpGribGPUParticles::CaptureTrailSnapshot() {
+  if (!m_trailArrayTex || !m_stateFBO[m_stateIndex]) return;
+
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, m_stateFBO[m_stateIndex]);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, m_trailArrayTex);
+  glCopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, m_trailWriteIdx, 0, 0,
+                      m_particleTexSize, m_particleTexSize);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+  m_trailWriteIdx = (m_trailWriteIdx + 1) % TRAIL_LEN;
+  if (m_validTrailCount < TRAIL_LEN) m_validTrailCount++;
+}
+
+// ============================================================================
 // Resource Cleanup
 // ============================================================================
 
@@ -409,6 +458,7 @@ void DpGribGPUParticles::DestroyFBOs() {
 }
 
 void DpGribGPUParticles::DestroyTextures() {
+  DestroyTrailArrayTexture();
   for (int i = 0; i < 2; i++) {
     if (m_stateFBO[i]) {
       glDeleteFramebuffers(1, &m_stateFBO[i]);
@@ -447,6 +497,8 @@ void DpGribGPUParticles::Reset() {
   m_lastGRY = nullptr;
   m_lastGRPer = nullptr;
   m_frameCount = 0;
+  m_validTrailCount = 0;
+  m_trailWriteIdx = 0;
 }
 
 // ============================================================================
@@ -489,6 +541,9 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
     m_speedFactor = wxMin(m_speedFactor, 50000.0f);
     m_speedFactor = wxMax(m_speedFactor, 0.001f);
   }
+
+  // Zoom-adaptive sub-steps: fewer when zoomed out (cheaper, still smooth)
+  m_subSteps = (vp->view_scale_ppm > 5e-4) ? 4 : 2;
 
   // Compute visible spawn bounds from viewport (approximate Mercator inverse)
   if (vp->view_scale_ppm > 0) {
@@ -534,6 +589,14 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
     CreateParticleStateTextures(side);
     GenerateRandomSeedTexture(side);
     ClearTrailFBOs();
+    if (!m_waveMode) CreateTrailArrayTexture(side);
+  }
+
+  // Manage trail array texture based on mode transitions
+  if (!m_waveMode && !m_trailArrayTex && m_particleTexSize > 0) {
+    CreateTrailArrayTexture(m_particleTexSize);
+  } else if (m_waveMode && m_trailArrayTex) {
+    DestroyTrailArrayTexture();
   }
 
   // Create trail FBOs on first call or resize
@@ -558,10 +621,17 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
 
 void DpGribGPUParticles::Render(PlugIn_ViewPort *vp) {
   if (!m_initialized || !vp) return;
-  if (!m_stateTexture[0] || !m_trailFBO[0]) return;
-  if (!grib_particle_update_program || !grib_trail_decay_program ||
-      !grib_particle_draw_program || !grib_trail_composite_program)
-    return;
+  if (!m_stateTexture[0]) return;
+  if (!grib_particle_update_program) return;
+
+  // Mode-specific shader guards
+  if (m_waveMode) {
+    if (!m_trailFBO[0] || !grib_trail_decay_program ||
+        !grib_particle_draw_program || !grib_trail_composite_program)
+      return;
+  } else {
+    if (!grib_ribbon_draw_program) return;
+  }
 
   // ===== SAVE GL STATE =====
   GLint savedVAO, savedProgram, savedFBO;
@@ -583,6 +653,10 @@ void DpGribGPUParticles::Render(PlugIn_ViewPort *vp) {
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &savedTex[i]);
   }
 
+  GLint savedTexArray;
+  glActiveTexture(GL_TEXTURE0);
+  glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &savedTexArray);
+
   GLint savedViewport[4];
   glGetIntegerv(GL_VIEWPORT, savedViewport);
 
@@ -592,34 +666,47 @@ void DpGribGPUParticles::Render(PlugIn_ViewPort *vp) {
   GLboolean savedDepthTest = glIsEnabled(GL_DEPTH_TEST);
   GLboolean savedScissorTest = glIsEnabled(GL_SCISSOR_TEST);
 
+  GLint savedReadFBO;
+  glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &savedReadFBO);
+
   // Disable depth/scissor for our FBO passes
   glDisable(GL_DEPTH_TEST);
   glDisable(GL_SCISSOR_TEST);
 
-  static const int SUB_STEPS = 4;
+  if (m_waveMode) {
+    // ===== WAVE MODE: existing FBO trail pipeline (unchanged) =====
+    DecayTrails(vp);
 
-  // ===== PASS 1: DECAY TRAIL FBO (once per frame) =====
-  DecayTrails(vp);
+    for (int step = 0; step < m_subSteps; step++) {
+      UpdateParticleState();
+      DrawParticles(vp);
+    }
 
-  // ===== PASS 2: SUB-STEP LOOP (update + draw N times) =====
-  for (int step = 0; step < SUB_STEPS; step++) {
-    UpdateParticleState();
-    DrawParticles(vp);
+    m_trailIndex = 1 - m_trailIndex;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, savedFBO);
+    glViewport(savedViewport[0], savedViewport[1], savedViewport[2],
+               savedViewport[3]);
+    CompositeToScreen(vp);
+  } else {
+    // ===== WIND MODE: ribbon pipeline =====
+    for (int step = 0; step < m_subSteps; step++) {
+      UpdateParticleState();
+    }
+
+    CaptureTrailSnapshot();
+
+    glBindFramebuffer(GL_FRAMEBUFFER, savedFBO);
+    glViewport(savedViewport[0], savedViewport[1], savedViewport[2],
+               savedViewport[3]);
+    DrawRibbons(vp);
   }
-
-  // Swap trail ping-pong
-  m_trailIndex = 1 - m_trailIndex;
-
-  // ===== PASS 3: COMPOSITE TO SCREEN =====
-  glBindFramebuffer(GL_FRAMEBUFFER, savedFBO);
-  glViewport(savedViewport[0], savedViewport[1], savedViewport[2],
-             savedViewport[3]);
-  CompositeToScreen(vp);
 
   // ===== RESTORE GL STATE =====
   glBindVertexArray(savedVAO);
   glUseProgram(savedProgram);
   glBindFramebuffer(GL_FRAMEBUFFER, savedFBO);
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, savedReadFBO);
   glBindBuffer(GL_ARRAY_BUFFER, savedArrayBuffer);
 
   if (savedBlend)
@@ -632,6 +719,8 @@ void DpGribGPUParticles::Render(PlugIn_ViewPort *vp) {
     glActiveTexture(GL_TEXTURE0 + i);
     glBindTexture(GL_TEXTURE_2D, savedTex[i]);
   }
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, savedTexArray);
   glActiveTexture(savedActiveTexture);
 
   glViewport(savedViewport[0], savedViewport[1], savedViewport[2],
@@ -702,13 +791,12 @@ void DpGribGPUParticles::UpdateParticleState() {
   }
 
   // Animation uniforms — speed divided by sub-steps for smooth trails
-  static const int SUB_STEPS = 4;
   float maxAge = m_waveMode ? 50.0f : 80.0f;
   glUniform1f(glGetUniformLocation(prog, "uMaxAge"), maxAge);
   glUniform1f(glGetUniformLocation(prog, "uDropRate"), 0.003f);
   glUniform1f(glGetUniformLocation(prog, "uDropRateBump"), 0.01f);
   glUniform1f(glGetUniformLocation(prog, "uSpeedFactor"),
-              m_speedFactor / (float)SUB_STEPS);
+              m_speedFactor / (float)m_subSteps);
   glUniform1f(glGetUniformLocation(prog, "uRandomSeed"),
               (float)(m_frameCount % 10000) * 0.001f);
 
@@ -797,9 +885,14 @@ void DpGribGPUParticles::DrawParticles(PlugIn_ViewPort *vp) {
   glUniform1i(glGetUniformLocation(drawProg, "uParticleTexSize"),
               m_particleTexSize);
 
-  // Viewport projection uniforms
-  glUniform2f(glGetUniformLocation(drawProg, "uViewCenter"), (float)vp->clon,
-              (float)vp->clat);
+  // Pre-computed Mercator center and rotation (avoid per-vertex trig)
+  float cx = (float)(vp->clon * M_PI / 180.0 * 6378137.0);
+  float cLatRad = (float)(vp->clat * M_PI / 180.0);
+  float cy = (float)(log(tan(cLatRad * 0.5 + M_PI / 4.0)) * 6378137.0);
+  glUniform2f(glGetUniformLocation(drawProg, "uViewCenterMerc"), cx, cy);
+  glUniform2f(glGetUniformLocation(drawProg, "uRotCS"),
+              cosf((float)vp->rotation), sinf((float)vp->rotation));
+
   glUniform1f(glGetUniformLocation(drawProg, "uViewScalePPM"),
               (float)vp->view_scale_ppm);
   glUniform2f(glGetUniformLocation(drawProg, "uViewSize"),
@@ -882,5 +975,63 @@ void DpGribGPUParticles::CompositeToScreen(PlugIn_ViewPort *vp) {
 
   glBindVertexArray(m_quadVAO);
   glDrawArrays(GL_TRIANGLES, 0, 6);
+  glBindVertexArray(0);
+}
+
+// ============================================================================
+// Wind Mode: Draw comet-tail ribbons from trail history
+// ============================================================================
+
+void DpGribGPUParticles::DrawRibbons(PlugIn_ViewPort *vp) {
+  if (m_validTrailCount < 2 || !m_trailArrayTex) return;
+
+  GLuint prog = grib_ribbon_draw_program;
+  glUseProgram(prog);
+
+  // Bind trail array texture
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, m_trailArrayTex);
+  glUniform1i(glGetUniformLocation(prog, "uTrailArray"), 0);
+
+  // Ring buffer state
+  glUniform1i(glGetUniformLocation(prog, "uTrailWriteIdx"), m_trailWriteIdx);
+  glUniform1i(glGetUniformLocation(prog, "uValidTrailCount"),
+              m_validTrailCount);
+  glUniform1i(glGetUniformLocation(prog, "uParticleTexSize"),
+              m_particleTexSize);
+
+  // Pre-computed Mercator center and rotation (avoid per-vertex trig)
+  float cx = (float)(vp->clon * M_PI / 180.0 * 6378137.0);
+  float cLatRad = (float)(vp->clat * M_PI / 180.0);
+  float cy = (float)(log(tan(cLatRad * 0.5 + M_PI / 4.0)) * 6378137.0);
+  glUniform2f(glGetUniformLocation(prog, "uViewCenterMerc"), cx, cy);
+  glUniform2f(glGetUniformLocation(prog, "uRotCS"),
+              cosf((float)vp->rotation), sinf((float)vp->rotation));
+
+  glUniform1f(glGetUniformLocation(prog, "uViewScalePPM"),
+              (float)vp->view_scale_ppm);
+  glUniform2f(glGetUniformLocation(prog, "uViewSize"), (float)vp->pix_width,
+              (float)vp->pix_height);
+
+  // Zoom-adaptive stride: fewer ribbon segments when zoomed out
+  int stride = 1;
+  if (vp->view_scale_ppm < 1e-4)
+    stride = 3;
+  else if (vp->view_scale_ppm < 5e-4)
+    stride = 2;
+
+  int effectiveSegments = (TRAIL_LEN - 1) / stride;
+  int vertsPerParticle = effectiveSegments * 6;
+  glUniform1i(glGetUniformLocation(prog, "uStride"), stride);
+  glUniform1i(glGetUniformLocation(prog, "uVertsPerParticle"),
+              vertsPerParticle);
+
+  // Additive blending (premultiplied alpha output from fragment shader)
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_ONE, GL_ONE);
+
+  int vertexCount = m_totalParticles * vertsPerParticle;
+  glBindVertexArray(m_quadVAO);
+  glDrawArrays(GL_TRIANGLES, 0, vertexCount);
   glBindVertexArray(0);
 }

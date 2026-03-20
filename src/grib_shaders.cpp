@@ -16,6 +16,7 @@
 GLuint grib_particle_update_program = 0;
 GLuint grib_trail_decay_program = 0;
 GLuint grib_particle_draw_program = 0;
+GLuint grib_ribbon_draw_program = 0;
 GLuint grib_trail_composite_program = 0;
 
 // GL 3.3 preamble
@@ -187,7 +188,8 @@ static const GLchar* particle_draw_vertex_source =
     "uniform sampler2D uPrevStateTex;\n"
     "uniform int uParticleTexSize;\n"
     "\n"
-    "uniform vec2 uViewCenter;\n"
+    "uniform vec2 uViewCenterMerc;\n"  // pre-computed Mercator center (meters)
+    "uniform vec2 uRotCS;\n"           // pre-computed (cos, sin) of rotation
     "uniform float uViewScalePPM;\n"
     "uniform vec2 uViewSize;\n"
     "uniform float uRotation;\n"
@@ -216,14 +218,9 @@ static const GLchar* particle_draw_vertex_source =
     "    float x = lon * DEG_TO_RAD * EARTH_RADIUS;\n"
     "    float latRad = lat * DEG_TO_RAD;\n"
     "    float y = log(tan(latRad * 0.5 + 0.7853981633974483)) * EARTH_RADIUS;\n"
-    "    float cx = uViewCenter.x * DEG_TO_RAD * EARTH_RADIUS;\n"
-    "    float cLatRad = uViewCenter.y * DEG_TO_RAD;\n"
-    "    float cy = log(tan(cLatRad * 0.5 + 0.7853981633974483)) * EARTH_RADIUS;\n"
-    "    vec2 offsetPx = vec2(x - cx, y - cy) * uViewScalePPM;\n"
-    "    float c = cos(uRotation);\n"
-    "    float s = sin(uRotation);\n"
-    "    vec2 rotated = vec2(offsetPx.x * c - offsetPx.y * s,\n"
-    "                        offsetPx.x * s + offsetPx.y * c);\n"
+    "    vec2 offsetPx = vec2(x - uViewCenterMerc.x, y - uViewCenterMerc.y) * uViewScalePPM;\n"
+    "    vec2 rotated = vec2(offsetPx.x * uRotCS.x - offsetPx.y * uRotCS.y,\n"
+    "                        offsetPx.x * uRotCS.y + offsetPx.y * uRotCS.x);\n"
     "    vec2 screenPos = uViewSize * 0.5 + vec2(rotated.x, -rotated.y);\n"
     "    vec2 ndc = (screenPos / uViewSize) * 2.0 - 1.0;\n"
     "    ndc.y = -ndc.y;\n"
@@ -304,6 +301,176 @@ static const GLchar* particle_draw_fragment_source =
     "\n"
     "void main() {\n"
     "    fragColor = vec4(1.0, 1.0, 1.0, vAlpha);\n"
+    "}\n";
+
+// ============================================================================
+// Shader 5: Ribbon Draw — comet-tail ribbons from trail history (wind mode)
+// ============================================================================
+
+static const GLchar* ribbon_draw_vertex_source =
+    "uniform sampler2DArray uTrailArray;\n"
+    "uniform int uTrailWriteIdx;\n"
+    "uniform int uValidTrailCount;\n"
+    "uniform int uParticleTexSize;\n"
+    "\n"
+    "uniform vec2 uViewCenterMerc;\n"  // pre-computed Mercator center (meters)
+    "uniform vec2 uRotCS;\n"           // pre-computed (cos, sin) of rotation
+    "uniform float uViewScalePPM;\n"
+    "uniform vec2 uViewSize;\n"
+    "\n"
+    "uniform int uStride;\n"
+    "uniform int uVertsPerParticle;\n"
+    "\n"
+    "out float vT;\n"
+    "out float vSide;\n"
+    "out float vAlpha;\n"
+    "\n"
+    "const int TRAIL_LEN = 16;\n"
+    "const float PI = 3.14159265;\n"
+    "const float DEG_TO_RAD = PI / 180.0;\n"
+    "const float EARTH_RADIUS = 6378137.0;\n"
+    "\n"
+    "vec2 geoToNDC(float lon, float lat) {\n"
+    "    float x = lon * DEG_TO_RAD * EARTH_RADIUS;\n"
+    "    float latRad = lat * DEG_TO_RAD;\n"
+    "    float y = log(tan(latRad * 0.5 + 0.7853981633974483)) * EARTH_RADIUS;\n"
+    "    vec2 offsetPx = vec2(x - uViewCenterMerc.x, y - uViewCenterMerc.y) * uViewScalePPM;\n"
+    "    vec2 rotated = vec2(offsetPx.x * uRotCS.x - offsetPx.y * uRotCS.y,\n"
+    "                        offsetPx.x * uRotCS.y + offsetPx.y * uRotCS.x);\n"
+    "    vec2 screenPos = uViewSize * 0.5 + vec2(rotated.x, -rotated.y);\n"
+    "    vec2 ndc = (screenPos / uViewSize) * 2.0 - 1.0;\n"
+    "    ndc.y = -ndc.y;\n"
+    "    return ndc;\n"
+    "}\n"
+    "\n"
+    "void main() {\n"
+    "    int particleId = gl_VertexID / uVertsPerParticle;\n"
+    "    int localVert  = gl_VertexID % uVertsPerParticle;\n"
+    "    int segIdx     = localVert / 6;\n"
+    "    int vertInQuad = localVert % 6;\n"
+    "\n"
+    "    // Texel coord for this particle\n"
+    "    int tx = particleId % uParticleTexSize;\n"
+    "    int ty = particleId / uParticleTexSize;\n"
+    "\n"
+    "    // Two trail point indices for this segment via stride\n"
+    "    int i0 = segIdx * uStride;\n"
+    "    int i1 = i0 + uStride;\n"
+    "\n"
+    "    // Hide if not enough history\n"
+    "    if (i1 >= uValidTrailCount) {\n"
+    "        gl_Position = vec4(2.0, 2.0, 0.0, 1.0);\n"
+    "        vT = 1.0; vSide = 0.0; vAlpha = 0.0;\n"
+    "        return;\n"
+    "    }\n"
+    "\n"
+    "    // Ring buffer layer mapping (most recent = writeIdx-1)\n"
+    "    int layer0 = (uTrailWriteIdx - 1 - i0 + TRAIL_LEN * 2) % TRAIL_LEN;\n"
+    "    int layer1 = (uTrailWriteIdx - 1 - i1 + TRAIL_LEN * 2) % TRAIL_LEN;\n"
+    "\n"
+    "    // Fetch particle state from trail array\n"
+    "    vec4 s0 = texelFetch(uTrailArray, ivec3(tx, ty, layer0), 0);\n"
+    "    vec4 s1 = texelFetch(uTrailArray, ivec3(tx, ty, layer1), 0);\n"
+    "\n"
+    "    float speed0 = s0.a;\n"
+    "    float age0   = s0.b;\n"
+    "    float speed1 = s1.a;\n"
+    "    float age1   = s1.b;\n"
+    "\n"
+    "    // Kill dead or just-spawned particles\n"
+    "    if (speed0 < 0.01 || age0 < 2.0) {\n"
+    "        gl_Position = vec4(2.0, 2.0, 0.0, 1.0);\n"
+    "        vT = 1.0; vSide = 0.0; vAlpha = 0.0;\n"
+    "        return;\n"
+    "    }\n"
+    "\n"
+    "    // Respawn detection: age should increase between snapshots.\n"
+    "    // A decrease (or the older point being dead) means a respawn happened.\n"
+    "    float ageDiff = age0 - age1;\n"
+    "    if (ageDiff < 0.0 || speed1 < 0.01) {\n"
+    "        gl_Position = vec4(2.0, 2.0, 0.0, 1.0);\n"
+    "        vT = 1.0; vSide = 0.0; vAlpha = 0.0;\n"
+    "        return;\n"
+    "    }\n"
+    "\n"
+    "    vec2 p0 = geoToNDC(s0.r, s0.g);\n"
+    "    vec2 p1 = geoToNDC(s1.r, s1.g);\n"
+    "\n"
+    "    // Fallback: large screen jump = teleport\n"
+    "    float dist = length((p1 - p0) * uViewSize * 0.5);\n"
+    "    if (dist > 50.0) {\n"
+    "        gl_Position = vec4(2.0, 2.0, 0.0, 1.0);\n"
+    "        vT = 1.0; vSide = 0.0; vAlpha = 0.0;\n"
+    "        return;\n"
+    "    }\n"
+    "\n"
+    "    // Segment direction and perpendicular\n"
+    "    vec2 dir = p1 - p0;\n"
+    "    float dirLen = length(dir);\n"
+    "    vec2 perp;\n"
+    "    if (dirLen > 0.0001) {\n"
+    "        vec2 nd = dir / dirLen;\n"
+    "        perp = vec2(-nd.y, nd.x);\n"
+    "    } else {\n"
+    "        perp = vec2(1.0, 0.0);\n"
+    "    }\n"
+    "\n"
+    "    // Taper width: head=full, tail=zero (in NDC, ~2px half-width)\n"
+    "    float maxHalfW = 2.0 / min(uViewSize.x, uViewSize.y);\n"
+    "    float t0 = float(i0) / float(TRAIL_LEN - 1);\n"
+    "    float t1 = float(i1) / float(TRAIL_LEN - 1);\n"
+    "    float hw0 = mix(maxHalfW, 0.0, t0);\n"
+    "    float hw1 = mix(maxHalfW, 0.0, t1);\n"
+    "\n"
+    "    // Quad vertex layout: 0,1,2, 2,1,3 (two triangles)\n"
+    "    //   0=(p0, left)  1=(p0, right)  2=(p1, left)  3=(p1, right)\n"
+    "    int quadCorner;\n"
+    "    if      (vertInQuad == 0) quadCorner = 0;\n"
+    "    else if (vertInQuad == 1) quadCorner = 1;\n"
+    "    else if (vertInQuad == 2) quadCorner = 2;\n"
+    "    else if (vertInQuad == 3) quadCorner = 2;\n"
+    "    else if (vertInQuad == 4) quadCorner = 1;\n"
+    "    else                      quadCorner = 3;\n"
+    "\n"
+    "    vec2 pos;\n"
+    "    float side;\n"
+    "    float t;\n"
+    "    if (quadCorner < 2) {\n"
+    "        side = (quadCorner == 0) ? -1.0 : 1.0;\n"
+    "        pos = p0 + perp * side * hw0;\n"
+    "        t = t0;\n"
+    "    } else {\n"
+    "        side = (quadCorner == 2) ? -1.0 : 1.0;\n"
+    "        pos = p1 + perp * side * hw1;\n"
+    "        t = t1;\n"
+    "    }\n"
+    "\n"
+    "    gl_Position = vec4(pos, 0.0, 1.0);\n"
+    "    vT = t;\n"
+    "    vSide = side;\n"
+    "    vAlpha = clamp(speed0 / 15.0, 0.3, 1.0);\n"
+    "}\n";
+
+static const GLchar* ribbon_draw_fragment_source =
+    "in float vT;\n"
+    "in float vSide;\n"
+    "in float vAlpha;\n"
+    "out vec4 fragColor;\n"
+    "\n"
+    "void main() {\n"
+    "    // Blue-white tint: bright head, cooler tail\n"
+    "    vec3 headColor = vec3(0.9, 0.95, 1.0);\n"
+    "    vec3 tailColor = vec3(0.5, 0.7, 1.0);\n"
+    "    vec3 color = mix(headColor, tailColor, vT);\n"
+    "\n"
+    "    // Radial falloff across ribbon width\n"
+    "    float radial = smoothstep(0.0, 0.4, 1.0 - abs(vSide));\n"
+    "\n"
+    "    // Alpha: taper along trail, speed brightness, radial softness\n"
+    "    float alpha = mix(1.0, 0.0, vT) * vAlpha * radial;\n"
+    "\n"
+    "    // Premultiplied alpha for additive blending\n"
+    "    fragColor = vec4(color * alpha, alpha);\n"
     "}\n";
 
 // ============================================================================
@@ -428,6 +595,11 @@ bool grib_InitGPUShaders() {
                         particle_draw_fragment_source,
                         grib_particle_draw_program);
 
+  ok &= CompileProgram("ribbon_draw",
+                        ribbon_draw_vertex_source,
+                        ribbon_draw_fragment_source,
+                        grib_ribbon_draw_program);
+
   ok &= CompileProgram("trail_composite",
                         trail_composite_vertex_source,
                         trail_composite_fragment_source,
@@ -438,7 +610,7 @@ bool grib_InitGPUShaders() {
     return false;
   }
 
-  printf("GRIB GPU: All 4 particle shaders compiled OK\n");
+  printf("GRIB GPU: All 5 particle shaders compiled OK\n");
   return true;
 }
 
@@ -449,5 +621,6 @@ void grib_CleanupGPUShaders() {
   cleanup(grib_particle_update_program);
   cleanup(grib_trail_decay_program);
   cleanup(grib_particle_draw_program);
+  cleanup(grib_ribbon_draw_program);
   cleanup(grib_trail_composite_program);
 }

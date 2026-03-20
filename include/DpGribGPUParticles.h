@@ -19,6 +19,9 @@ struct PlugIn_ViewPort;
 
 class DpGribGPUParticles {
 public:
+  static const int TRAIL_LEN = 16;
+  static const int VERTS_PER_PARTICLE = (TRAIL_LEN - 1) * 6;  // 90 max (stride reduces at runtime)
+
   DpGribGPUParticles();
   ~DpGribGPUParticles();
 
@@ -48,6 +51,12 @@ private:
   void UploadWavePeriodData(GribRecord *pGRPer);
   void HandleViewportChange(PlugIn_ViewPort *vp);
   void ClearTrailFBOs();
+
+  // Trail history management (wind mode ribbons)
+  void CreateTrailArrayTexture(int texSize);
+  void DestroyTrailArrayTexture();
+  void CaptureTrailSnapshot();
+  void DrawRibbons(PlugIn_ViewPort *vp);
 
   // Resource cleanup
   void DestroyFBOs();
@@ -79,6 +88,11 @@ private:
   // Fullscreen quad geometry
   GLuint m_quadVAO, m_quadVBO;
 
+  // Trail history ring buffer (wind mode ribbon rendering)
+  GLuint m_trailArrayTex;    // GL_TEXTURE_2D_ARRAY, TRAIL_LEN layers, RGBA32F
+  int m_trailWriteIdx;        // ring buffer write pointer 0..TRAIL_LEN-1
+  int m_validTrailCount;      // frames captured since reset (caps at TRAIL_LEN)
+
   // Grid metadata for shader uniforms
   float m_gridLo1, m_gridLa1;
   float m_gridDi, m_gridDj;
@@ -109,6 +123,7 @@ private:
   int m_frameCount;
   float m_density;
   float m_speedFactor;  // zoom-adaptive, computed from view_scale_ppm
+  int m_subSteps;       // zoom-adaptive: 4 zoomed in, 2 zoomed out
 };
 
 #endif  // __DPGRIBGPUPARTICLES_H__
