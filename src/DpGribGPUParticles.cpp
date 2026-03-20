@@ -536,7 +536,7 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
 
   // Compute zoom-adaptive speed factor (waves slower than wind)
   if (vp->view_scale_ppm > 0) {
-    float baseFactor = m_waveMode ? 0.1f : 0.2f;
+    float baseFactor = m_waveMode ? 0.03f : 0.2f;
     m_speedFactor = baseFactor / (float)vp->view_scale_ppm;
     m_speedFactor = wxMin(m_speedFactor, 50000.0f);
     m_speedFactor = wxMax(m_speedFactor, 0.001f);
@@ -574,15 +574,16 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
 
   // Base: ~1 particle per N screen pixels, scaled by visible fraction
   // Waves use fewer particles (1 per 10000px) than wind (1 per 3000px)
-  double pixelsPerParticle = m_waveMode ? 20000.0 : 3000.0;
-  int maxParticles = m_waveMode ? 400 : 3000;
+  double pixelsPerParticle = m_waveMode ? 800000.0 : 3000.0;
+  int maxParticles = m_waveMode ? 80 : 3000;
+  int minParticles = m_waveMode ? 16 : 50;
   double zoomScale = sqrt(visibleFraction);
   int targetCount = (int)(screenPixels / pixelsPerParticle * density * zoomScale);
   targetCount = wxMin(targetCount, maxParticles);
-  targetCount = wxMax(targetCount, 50);
+  targetCount = wxMax(targetCount, minParticles);
 
   int side = (int)ceil(sqrt((double)targetCount));
-  side = wxMax(side, 16);
+  side = wxMax(side, m_waveMode ? 4 : 16);
   side = wxMin(side, 283);
 
   if (side != m_particleTexSize) {
