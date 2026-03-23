@@ -551,8 +551,14 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
         (vp->pix_width * 0.5) / (vp->view_scale_ppm * 111320.0);
     double halfHDeg =
         (vp->pix_height * 0.5) / (vp->view_scale_ppm * 110540.0);
-    m_spawnLonMin = wxMax((float)(vp->clon - halfWDeg), m_gridLonMin);
-    m_spawnLonMax = wxMin((float)(vp->clon + halfWDeg), m_gridLonMax);
+
+    // Normalize viewport center to grid longitude convention.
+    // GFS grids use 0-360, but OpenCPN viewport uses -180 to +180.
+    double clon = vp->clon;
+    if (m_gridLonMax > 180.0 && clon < 0) clon += 360.0;
+
+    m_spawnLonMin = wxMax((float)(clon - halfWDeg), m_gridLonMin);
+    m_spawnLonMax = wxMin((float)(clon + halfWDeg), m_gridLonMax);
     m_spawnLatMin = wxMax((float)(vp->clat - halfHDeg), m_gridLatMin);
     m_spawnLatMax = wxMin((float)(vp->clat + halfHDeg), m_gridLatMax);
   }
@@ -792,7 +798,7 @@ void DpGribGPUParticles::UpdateParticleState() {
   }
 
   // Animation uniforms — speed divided by sub-steps for smooth trails
-  float maxAge = m_waveMode ? 50.0f : 80.0f;
+  float maxAge = m_waveMode ? 80.0f : 80.0f;
   glUniform1f(glGetUniformLocation(prog, "uMaxAge"), maxAge);
   glUniform1f(glGetUniformLocation(prog, "uDropRate"), 0.003f);
   glUniform1f(glGetUniformLocation(prog, "uDropRateBump"), 0.01f);
@@ -826,7 +832,7 @@ void DpGribGPUParticles::DecayTrails(PlugIn_ViewPort *vp) {
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, m_trailTexture[m_trailIndex]);
   glUniform1i(glGetUniformLocation(decayProg, "uTrailTex"), 0);
-  float decay = m_waveMode ? 0.85f : 0.96f;
+  float decay = m_waveMode ? 0.92f : 0.96f;
   glUniform1f(glGetUniformLocation(decayProg, "uDecay"), decay);
 
   // Compute pan offset for smooth trail shifting

@@ -2103,8 +2103,7 @@ void GRIBOverlayFactory::DrawNumbers(wxPoint p, double value, int settings,
 
 void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
                                              PlugIn_ViewPort *vp) {
-  if (settings != GribOverlaySettings::WAVE &&
-      !m_Settings.Settings[settings].m_bParticles)
+  if (!m_Settings.Settings[settings].m_bParticles)
     return;
 
   //   need two records or a polar record to draw arrows
