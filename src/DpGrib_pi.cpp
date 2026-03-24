@@ -865,8 +865,8 @@ bool DpGrib_pi::LoadConfig(void) {
   pConf->SetPath(_T( "/PlugIns/GRIB" ));
   pConf->Read(_T( "LoadLastOpenFile" ), &m_bLoadLastOpenFile, 0);
   pConf->Read(_T("OpenFileOption" ), &m_bStartOptions, 1);
-  pConf->Read(_T( "GRIBUseHiDef" ), &m_bGRIBUseHiDef, 0);
-  pConf->Read(_T( "GRIBUseGradualColors" ), &m_bGRIBUseGradualColors, 0);
+  pConf->Read(_T( "GRIBUseHiDef" ), &m_bGRIBUseHiDef, 1);
+  pConf->Read(_T( "GRIBUseGradualColors" ), &m_bGRIBUseGradualColors, 1);
   pConf->Read(_T( "DrawBarbedArrowHead" ), &m_bDrawBarbedArrowHead, 1);
   pConf->Read(_T( "ZoomToCenterAtInit"), &m_bZoomToCenterAtInit, 1);
   pConf->Read(_T( "ShowGRIBIcon" ), &m_bGRIBShowIcon, 1);

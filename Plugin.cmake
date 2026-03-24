@@ -111,6 +111,8 @@ set(CORE_HEADERS
 set(GL_SOURCES
     src/pi_ocpndc.cpp
     src/pi_shaders.cpp
+    src/grib_shaders.cpp
+    src/DpGribGPUParticles.cpp
     src/pi_TexFont.cpp
     src/icons.cpp
 )
@@ -118,6 +120,8 @@ set(GL_SOURCES
 set(GL_HEADERS
     include/pi_ocpndc.h
     include/pi_shaders.h
+    include/grib_shaders.h
+    include/DpGribGPUParticles.h
     include/pi_TexFont.h
     include/pi_gl.h
     include/linmath.h

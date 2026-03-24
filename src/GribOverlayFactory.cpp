@@ -33,6 +33,7 @@
 #include <wx/progdlg.h>
 #include "pi_ocpndc.h"
 #include "pi_shaders.h"
+#include "grib_shaders.h"
 
 #ifdef __ANDROID__
 #include "qdebug.h"
@@ -232,9 +233,17 @@ GRIBOverlayFactory::GRIBOverlayFactory(GRIBUICtrlBar &dlg)
   for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++)
     m_pOverlay[i] = nullptr;
 
+  m_bUseGPURenderer = false;
+  m_bGPUInitialized = false;
+  m_glCaps = {false, false, 0};
+  m_gpuParticles = nullptr;
+
   m_ParticleMap = nullptr;
   m_tParticleTimer.Connect(
       wxEVT_TIMER, wxTimerEventHandler(GRIBOverlayFactory::OnParticleTimer),
+      nullptr, this);
+  m_gpuAnimTimer.Connect(
+      wxEVT_TIMER, wxTimerEventHandler(GRIBOverlayFactory::OnGPUAnimTimer),
       nullptr, this);
   m_bUpdateParticles = false;
 
@@ -362,6 +371,11 @@ GRIBOverlayFactory::~GRIBOverlayFactory() {
 
   ClearParticles();
 
+  delete m_gpuParticles;
+  m_gpuParticles = nullptr;
+
+  if (m_bGPUInitialized) grib_CleanupGPUShaders();
+
   if (m_oDC) delete m_oDC;
   if (m_Font_Message) delete m_Font_Message;
 }
@@ -430,6 +444,12 @@ bool GRIBOverlayFactory::RenderGLGribOverlay(wxGLContext *pcontext,
   m_oDC->SetDC(nullptr);
 
   m_pdc = nullptr;  // inform lower layers that this is OpenGL render
+
+  // Initialize GPU renderer on first GL call
+  if (!m_bGPUInitialized) {
+    InitGPURenderer();
+    m_bGPUInitialized = true;
+  }
 
   bool rv = DoRenderGribOverlay(vp);
 
@@ -685,14 +705,14 @@ bool GRIBOverlayFactory::CreateGribGLTexture(GribOverlay *pGO, int settings,
   int tw, th, samples = 1;
   double delta = 0;
   ;
-  if (pGR->getNi() > 1024 || pGR->getNj() > 1024) {
+  if (pGR->getNi() > 2048 || pGR->getNj() > 2048) {
     // downsample
     samples = 0;
     tw = pGR->getNi();
     th = pGR->getNj();
     double dw, dh;
-    dw = (tw > 1022) ? 1022. / tw : 1.;
-    dh = (th > 1022) ? 1022. / th : 1.;
+    dw = (tw > 2046) ? 2046. / tw : 1.;
+    dh = (th > 2046) ? 2046. / th : 1.;
     delta = wxMin(dw, dh);
     th *= delta;
     tw *= delta;
@@ -700,15 +720,15 @@ bool GRIBOverlayFactory::CreateGribGLTexture(GribOverlay *pGO, int settings,
     th += 2;
   } else
     for (;;) {
-      // oversample up to 16x
+      // oversample up to 32x
       tw = samples * (pGR->getNi() - 1) + 1 + 2 * !repeat;
       th = samples * (pGR->getNj() - 1) + 1 + 2;
-      if (tw >= 512 || th >= 512 || samples == 16) break;
+      if (tw >= 1024 || th >= 1024 || samples == 32) break;
       samples *= 2;
     }
 
   //    Dont try to create enormous GRIB textures
-  if (tw > 1024 || th > 1024) return false;
+  if (tw > 4096 || th > 4096) return false;
 
   pGO->m_iTexDataDim[0] = tw;
   pGO->m_iTexDataDim[1] = th;
@@ -958,104 +978,107 @@ struct ColorMap {
   unsigned char b;
 };
 
+//    TimeZero-style wave/current palette: violet → blue → cyan → green → yellow → red → magenta → white
 static ColorMap CurrentMap[] = {
-    {0, _T("#d90000")},  {1, _T("#d92a00")},  {2, _T("#d96e00")},
-    {3, _T("#d9b200")},  {4, _T("#d4d404")},  {5, _T("#a6d906")},
-    {7, _T("#06d9a0")},  {9, _T("#00d9b0")},  {12, _T("#00d9c0")},
-    {15, _T("#00aed0")}, {18, _T("#0083e0")}, {21, _T("#0057e0")},
-    {24, _T("#0000f0")}, {27, _T("#0400f0")}, {30, _T("#1c00f0")},
-    {36, _T("#4800f0")}, {42, _T("#6900f0")}, {48, _T("#a000f0")},
-    {56, _T("#f000f0")}};
+    {0, _T("#180848")},  {1, _T("#201070")},  {2, _T("#2820A0")},
+    {3, _T("#2038C0")},  {4, _T("#1858D8")},  {5, _T("#1080E0")},
+    {7, _T("#00A8E0")},  {9, _T("#00C8D0")},  {12, _T("#00D8A0")},
+    {15, _T("#20E860")}, {18, _T("#70F020")}, {21, _T("#C0F000")},
+    {24, _T("#F0E000")}, {27, _T("#F0B000")}, {30, _T("#F08000")},
+    {36, _T("#E85020")}, {42, _T("#D82050")}, {48, _T("#E030A0")},
+    {56, _T("#F0C0E0")}};
+
 
 static ColorMap GenericMap[] = {
-    {0, _T("#00d900")},  {1, _T("#2ad900")},  {2, _T("#6ed900")},
-    {3, _T("#b2d900")},  {4, _T("#d4d400")},  {5, _T("#d9a600")},
-    {7, _T("#d90000")},  {9, _T("#d90040")},  {12, _T("#d90060")},
-    {15, _T("#ae0080")}, {18, _T("#8300a0")}, {21, _T("#5700c0")},
-    {24, _T("#0000d0")}, {27, _T("#0400e0")}, {30, _T("#0800e0")},
-    {36, _T("#a000e0")}, {42, _T("#c004c0")}, {48, _T("#c008a0")},
-    {56, _T("#c0a008")}};
+    {0, _T("#2838A8")},  {1, _T("#2050C0")},  {2, _T("#1870D0")},
+    {3, _T("#1090D8")},  {4, _T("#08B0D0")},  {5, _T("#00C8B8")},
+    {7, _T("#10D888")},  {9, _T("#40E858")},  {12, _T("#80F030")},
+    {15, _T("#C0F010")}, {18, _T("#E8E000")}, {21, _T("#F0C000")},
+    {24, _T("#F09800")}, {27, _T("#E87000")}, {30, _T("#D85010")},
+    {36, _T("#C03020")}, {42, _T("#A01838")}, {48, _T("#801050")},
+    {56, _T("#601060")}};
 
-//    HTML colors taken from zygrib representation
+//    TimeZero-style wind color palette
 static ColorMap WindMap[] = {
-    {0, _T("#288CFF")},  {3, _T("#00AFFF")},  {6, _T("#00DCE1")},
-    {9, _T("#00F7B0")},  {12, _T("#00EA9C")}, {15, _T("#82F059")},
-    {18, _T("#F0F503")}, {21, _T("#FFED00")}, {24, _T("#FFDB00")},
-    {27, _T("#FFC700")}, {30, _T("#FFB400")}, {33, _T("#FF9800")},
-    {36, _T("#FF7E00")}, {39, _T("#F77800")}, {42, _T("#EC7814")},
-    {45, _T("#E4711E")}, {48, _T("#E06128")}, {51, _T("#DC5132")},
-    {54, _T("#D5453C")}, {57, _T("#CD3A46")}, {60, _T("#BE2C50")},
-    {63, _T("#B41A5A")}, {66, _T("#AA1464")}, {70, _T("#962878")},
-    {75, _T("#8C328C")}};
+    {0, _T("#3030AA")},  {3, _T("#2848CC")},  {6, _T("#2060E0")},
+    {9, _T("#1880E8")},  {12, _T("#10A0E0")}, {15, _T("#08C8D0")},
+    {18, _T("#00D8B0")}, {21, _T("#20E880")}, {24, _T("#60F050")},
+    {27, _T("#A0F830")}, {30, _T("#D0F818")}, {33, _T("#F0F000")},
+    {36, _T("#F8D800")}, {39, _T("#F8B800")}, {42, _T("#F89800")},
+    {45, _T("#F07000")}, {48, _T("#E85000")}, {51, _T("#D83820")},
+    {54, _T("#C82030")}, {57, _T("#B01040")}, {60, _T("#901050")},
+    {63, _T("#701060")}, {66, _T("#581068")}, {70, _T("#481070")},
+    {75, _T("#380C60")}};
 
-//    HTML colors taken from zygrib representation
+//    Air temperature: deep purple (cold) → blue → cyan → green → yellow → orange → red (hot)
 static ColorMap AirTempMap[] = {
-    {0, _T("#283282")},  {5, _T("#273c8c")},  {10, _T("#264696")},
-    {14, _T("#2350a0")}, {18, _T("#1f5aaa")}, {22, _T("#1a64b4")},
-    {26, _T("#136ec8")}, {29, _T("#0c78e1")}, {32, _T("#0382e6")},
-    {35, _T("#0091e6")}, {38, _T("#009ee1")}, {41, _T("#00a6dc")},
-    {44, _T("#00b2d7")}, {47, _T("#00bed2")}, {50, _T("#28c8c8")},
-    {53, _T("#78d2aa")}, {56, _T("#8cdc78")}, {59, _T("#a0eb5f")},
-    {62, _T("#c8f550")}, {65, _T("#f3fb02")}, {68, _T("#ffed00")},
-    {71, _T("#ffdd00")}, {74, _T("#ffc900")}, {78, _T("#ffab00")},
-    {82, _T("#ff8100")}, {86, _T("#f1780c")}, {90, _T("#e26a23")},
-    {95, _T("#d5453c")}, {100, _T("#b53c59")}};
+    {0, _T("#3818A0")},  {5, _T("#3028B8")},  {10, _T("#2840D0")},
+    {14, _T("#2058E0")}, {18, _T("#1878E8")}, {22, _T("#1098E8")},
+    {26, _T("#08B8E0")}, {29, _T("#00D0D0")}, {32, _T("#00E0B0")},
+    {35, _T("#10E888")}, {38, _T("#30F060")}, {41, _T("#60F040")},
+    {44, _T("#90F028")}, {47, _T("#B8F010")}, {50, _T("#D8E800")},
+    {53, _T("#F0D800")}, {56, _T("#F0C000")}, {59, _T("#F0A000")},
+    {62, _T("#E88000")}, {65, _T("#E06000")}, {68, _T("#D84010")},
+    {71, _T("#C82820")}, {74, _T("#B81830")}, {78, _T("#A01040")},
+    {82, _T("#880850")}, {86, _T("#700858")}, {90, _T("#580860")},
+    {95, _T("#480860")}, {100, _T("#380858")}};
 
-//  Color map similar to:
-//  https://www.ospo.noaa.gov/data/sst/contour/global.cf.gif
+//    Sea temperature: deep violet (cold) → blue → cyan → green → yellow → orange → deep red (warm)
 static ColorMap SeaTempMap[] = {
-    {-2, _T("#cc04ae")}, {2, _T("#8f06e4")},  {6, _T("#486afa")},
-    {10, _T("#00ffff")}, {15, _T("#00d54b")}, {19, _T("#59d800")},
-    {23, _T("#f2fc00")}, {27, _T("#ff1500")}, {32, _T("#ff0000")},
-    {36, _T("#d80000")}, {40, _T("#a90000")}, {44, _T("#870000")},
-    {48, _T("#690000")}, {52, _T("#550000")}, {56, _T("#330000")}};
+    {-2, _T("#381080")}, {2, _T("#2828B0")},  {6, _T("#1850D8")},
+    {10, _T("#0880E8")}, {15, _T("#00B8D8")}, {19, _T("#00D8A8")},
+    {23, _T("#30E860")}, {27, _T("#90F020")}, {32, _T("#E0E800")},
+    {36, _T("#F0B000")}, {40, _T("#E87800")}, {44, _T("#D84810")},
+    {48, _T("#C02020")}, {52, _T("#901830")}, {56, _T("#601040")}};
 
-//    HTML colors taken from ZyGrib representation
+//    Precipitation: transparent → light teal → deep blue → violet (heavy rain)
 static ColorMap PrecipitationMap[] = {
-    {0, _T("#ffffff")},   {.01, _T("#c8f0ff")}, {.02, _T("#b4e6ff")},
-    {.05, _T("#8cd3ff")}, {.07, _T("#78caff")}, {.1, _T("#6ec1ff")},
-    {.2, _T("#64b8ff")},  {.5, _T("#50a6ff")},  {.7, _T("#469eff")},
-    {1.0, _T("#3c96ff")}, {2.0, _T("#328eff")}, {5.0, _T("#1e7eff")},
-    {7.0, _T("#1476f0")}, {10, _T("#0a6edc")},  {20, _T("#0064c8")},
-    {50, _T("#0052aa")}};
+    {0, _T("#E8F8F8")},   {.01, _T("#C0F0F0")}, {.02, _T("#90E8E8")},
+    {.05, _T("#60D8E0")}, {.07, _T("#40C8D8")}, {.1, _T("#20B8D0")},
+    {.2, _T("#10A8C8")},  {.5, _T("#0890C0")},  {.7, _T("#0878B8")},
+    {1.0, _T("#0860B0")}, {2.0, _T("#0848A8")}, {5.0, _T("#0838A0")},
+    {7.0, _T("#102898")}, {10, _T("#201890")},  {20, _T("#381080")},
+    {50, _T("#480868")}};
 
-//    HTML colors taken from ZyGrib representation
+//    Cloud cover: clear white → soft grey → blue-grey (overcast)
 static ColorMap CloudMap[] = {
-    {0, _T("#ffffff")},  {1, _T("#f0f0e6")},  {10, _T("#e6e6dc")},
-    {20, _T("#dcdcd2")}, {30, _T("#c8c8b4")}, {40, _T("#aaaa8c")},
-    {50, _T("#969678")}, {60, _T("#787864")}, {70, _T("#646450")},
-    {80, _T("#5a5a46")}, {90, _T("#505036")}};
+    {0, _T("#F8F8FF")},  {1, _T("#E8ECF0")},  {10, _T("#D8E0E8")},
+    {20, _T("#C0CCD8")}, {30, _T("#A8B8C8")}, {40, _T("#90A4B8")},
+    {50, _T("#7890A8")}, {60, _T("#607C98")}, {70, _T("#506888")},
+    {80, _T("#405878")}, {90, _T("#384868")}};
 
+//    Radar reflectivity: NWS-inspired but smoother gradients
 static ColorMap REFCMap[] = {
-    {0, _T("#ffffff")},  {5, _T("#06E8E4")},  {10, _T("#009BE9")},
-    {15, _T("#0400F3")}, {20, _T("#00F924")}, {25, _T("#06C200")},
-    {30, _T("#009100")}, {35, _T("#FAFB00")}, {40, _T("#EBB608")},
-    {45, _T("#FF9400")}, {50, _T("#FD0002")}, {55, _T("#D70000")},
-    {60, _T("#C20300")}, {65, _T("#F900FE")}, {70, _T("#945AC8")}};
+    {0, _T("#E0E8F0")},  {5, _T("#80D0D0")},  {10, _T("#40B8D8")},
+    {15, _T("#1898E0")},  {20, _T("#20C860")}, {25, _T("#18A840")},
+    {30, _T("#108828")},  {35, _T("#E8E000")}, {40, _T("#E0B000")},
+    {45, _T("#E08800")},  {50, _T("#D85010")}, {55, _T("#C02820")},
+    {60, _T("#A01830")},  {65, _T("#881888")}, {70, _T("#6828A0")}};
 
+//    CAPE: stable blue → green → yellow → orange → red → deep purple (extreme instability)
 static ColorMap CAPEMap[] = {
-    {0, _T("#0046c8")},    {5, _T("#0050f0")},    {10, _T("#005aff")},
-    {15, _T("#0069ff")},   {20, _T("#0078ff")},   {30, _T("#000cff")},
-    {45, _T("#00a1ff")},   {60, _T("#00b6fa")},   {100, _T("#00c9ee")},
-    {150, _T("#00e0da")},  {200, _T("#00e6b4")},  {300, _T("#82e678")},
-    {500, _T("#9bff3b")},  {700, _T("#ffdc00")},  {1000, _T("#ffb700")},
-    {1500, _T("#f37800")}, {2000, _T("#d4440c")}, {2500, _T("#c8201c")},
-    {3000, _T("#ad0430")},
-};
+    {0, _T("#2040B0")},    {5, _T("#1850C0")},    {10, _T("#1060D0")},
+    {15, _T("#0878D8")},   {20, _T("#0090D8")},   {30, _T("#00A8D0")},
+    {45, _T("#00C0C0")},   {60, _T("#00D0A0")},   {100, _T("#10E078")},
+    {150, _T("#40E850")},  {200, _T("#80F030")},   {300, _T("#B8F010")},
+    {500, _T("#E0E800")},  {700, _T("#F0C800")},   {1000, _T("#F0A000")},
+    {1500, _T("#E07000")}, {2000, _T("#D04010")},  {2500, _T("#B02020")},
+    {3000, _T("#881040")}};
 
+//    Windy-style palette: muted blue → teal → green → gold → salmon → purple
 static ColorMap WindyMap[] = {
-    {0, _T("#6271B7")},  {3, _T("#3961A9")},  {6, _T("#4A94A9")},
-    {9, _T("#4D8D7B")},  {12, _T("#53A553")}, {15, _T("#53A553")},
-    {18, _T("#359F35")}, {21, _T("#A79D51")}, {24, _T("#9F7F3A")},
-    {27, _T("#A16C5C")}, {30, _T("#A16C5C")}, {33, _T("#813A4E")},
-    {36, _T("#AF5088")}, {39, _T("#AF5088")}, {42, _T("#754A93")},
-    {45, _T("#754A93")}, {48, _T("#6D61A3")}, {51, _T("#44698D")},
-    {54, _T("#44698D")}, {57, _T("#5C9098")}, {60, _T("#7D44A5")},
-    {63, _T("#7D44A5")}, {66, _T("#7D44A5")}, {69, _T("#E7D7D7")},
-    {72, _T("#E7D7D7")}, {75, _T("#E7D7D7")}, {78, _T("#DBD483")},
-    {81, _T("#DBD483")}, {84, _T("#DBD483")}, {87, _T("#CDC470")},
-    {90, _T("#CDC470")}, {93, _T("#CDC470")}, {96, _T("#CDC470")},
-    {99, _T("#808080")}};
+    {0, _T("#3848A8")},  {3, _T("#3058B8")},  {6, _T("#2870C0")},
+    {9, _T("#2088C0")},  {12, _T("#18A0B8")}, {15, _T("#10B0A8")},
+    {18, _T("#10C090")}, {21, _T("#20C870")}, {24, _T("#40D050")},
+    {27, _T("#70D838")}, {30, _T("#A0D820")}, {33, _T("#C8D010")},
+    {36, _T("#E0C000")}, {39, _T("#E0A800")}, {42, _T("#E08800")},
+    {45, _T("#D86810")}, {48, _T("#D04820")}, {51, _T("#C03028")},
+    {54, _T("#A82038")}, {57, _T("#901840")}, {60, _T("#781050")},
+    {63, _T("#681058")}, {66, _T("#581060")}, {69, _T("#481060")},
+    {72, _T("#401060")}, {75, _T("#380C58")}, {78, _T("#300C50")},
+    {81, _T("#280848")}, {84, _T("#200840")}, {87, _T("#200838")},
+    {90, _T("#180830")}, {93, _T("#180828")}, {96, _T("#100820")},
+    {99, _T("#100818")}};
 
 #if 0
 static ColorMap *ColorMaps[] = {CurrentMap, GenericMap, WindMap, AirTempMap, SeaTempMap, PrecipitationMap, CloudMap};
@@ -1812,8 +1835,7 @@ void GRIBOverlayFactory::RenderGribOverlayMap(int settings, GribRecord **pGR,
 
       texture_format = GL_TEXTURE_2D;
 
-      if (!texture_format)  // it's very unlikely to not have any of the above
-                            // extensions
+      if (!texture_format)
         m_Message_Hiden.Append(
             _("Overlays not supported by this graphics hardware (Disable "
               "OpenGL)"));
@@ -2081,7 +2103,8 @@ void GRIBOverlayFactory::DrawNumbers(wxPoint p, double value, int settings,
 
 void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
                                              PlugIn_ViewPort *vp) {
-  if (!m_Settings.Settings[settings].m_bParticles) return;
+  if (!m_Settings.Settings[settings].m_bParticles)
+    return;
 
   //   need two records or a polar record to draw arrows
   GribRecord *pGRX, *pGRY;
@@ -2094,6 +2117,17 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
   pGRY = pGR[idy];
 
   if (!pGRX || !pGRY) return;
+
+  // GPU particle path
+  if (m_bUseGPURenderer && m_gpuParticles) {
+    GribRecord *pGRPeriod = nullptr;
+    if (settings == GribOverlaySettings::WAVE)
+      pGRPeriod = pGR[Idx_WVPER];
+    m_gpuParticles->Update(pGRX, pGRY, settings, m_Settings, vp, pGRPeriod);
+    m_gpuParticles->Render(vp);
+    ScheduleGPUParticleRefresh();
+    return;
+  }
 
   wxStopWatch sw;
   sw.Start();
@@ -2446,8 +2480,8 @@ void GRIBOverlayFactory::OnParticleTimer(wxTimerEvent &event) {
   m_bUpdateParticles = true;
 
   // If multicanvas are active, render the overlay on the right canvas only
-  if (GetCanvasCount() > 1)               // multi?
-    GetCanvasByIndex(1)->Refresh(false);  // update the last rendered canvas
+  if (GetCanvasCount() > 1)
+    GetCanvasByIndex(1)->Refresh(false);
   else
     GetOCPNCanvasWindow()->Refresh(false);
 }
@@ -2947,4 +2981,34 @@ void GRIBOverlayFactory::DrawGLTexture(GribOverlay *pGO, GribRecord *pGR,
   glDisable(GL_BLEND);
   glDisable(texture_format);
 }
+
+// ============================================================================
+// GPU Heatmap Renderer (GL 3.3+)
+// ============================================================================
+
+void GRIBOverlayFactory::InitGPURenderer() {
+  m_glCaps = grib_DetectCapabilities();
+  if (m_glCaps.hasGL33 && grib_InitGPUShaders()) {
+    m_bUseGPURenderer = true;
+    m_gpuParticles = new DpGribGPUParticles();
+    m_gpuParticles->Initialize(m_glCaps);
+    printf("GRIB GPU: Particle renderer enabled\n");
+  } else {
+    m_bUseGPURenderer = false;
+    printf("GRIB GPU: Falling back to CPU particles\n");
+  }
+}
+
+// Dedicated GPU particle animation timer — radar-style self-scheduling
+void GRIBOverlayFactory::ScheduleGPUParticleRefresh() {
+  m_gpuAnimTimer.StartOnce(30);
+}
+
+void GRIBOverlayFactory::OnGPUAnimTimer(wxTimerEvent &event) {
+  for (int i = 0; i < GetCanvasCount(); i++) {
+    wxWindow *canvas = GetCanvasByIndex(i);
+    if (canvas) canvas->Refresh(false);
+  }
+}
+
 #endif
