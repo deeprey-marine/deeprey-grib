@@ -537,15 +537,16 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
   // Constant screen-space speed: baseFactor / scale
   // Screen pixels per frame = u(m/s) * baseFactor — same at every zoom level.
   if (vp->view_scale_ppm > 0) {
-    float baseFactor = m_waveMode ? 0.03f : 0.2f;
+    float baseFactor = m_waveMode ? 0.02f : 0.12f;
     m_speedFactor = baseFactor / (float)vp->view_scale_ppm;
-    m_speedFactor = wxMin(m_speedFactor, 400.0f);
+    m_speedFactor = wxMin(m_speedFactor, 200.0f);
     // Grid-relative cap: particles should not cross more than 2% of grid
     // per frame at strong wind (20 m/s). Prevents racing in small regions.
     float gridLonSpan = m_gridLonMax - m_gridLonMin;
     float gridCap = gridLonSpan * 0.02f * 111320.0f / 20.0f;
     m_speedFactor = wxMin(m_speedFactor, wxMax(gridCap, 5.0f));
     m_speedFactor = wxMax(m_speedFactor, 0.001f);
+
   }
 
   // Zoom-adaptive sub-steps: fewer when zoomed out (cheaper, still smooth)
@@ -813,7 +814,7 @@ void DpGribGPUParticles::UpdateParticleState() {
   }
 
   // Animation uniforms — speed divided by sub-steps for smooth trails
-  float maxAge = m_waveMode ? 80.0f : 80.0f;
+  float maxAge = m_waveMode ? 80.0f : 150.0f;
   glUniform1f(glGetUniformLocation(prog, "uMaxAge"), maxAge);
   glUniform1f(glGetUniformLocation(prog, "uDropRate"), 0.003f);
   glUniform1f(glGetUniformLocation(prog, "uDropRateBump"), 0.01f);
