@@ -534,12 +534,19 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
     m_lastGRPer = pGRPeriod;
   }
 
-  // Compute zoom-adaptive speed factor (waves slower than wind)
+  // Constant screen-space speed: baseFactor / scale
+  // Screen pixels per frame = u(m/s) * baseFactor — same at every zoom level.
   if (vp->view_scale_ppm > 0) {
-    float baseFactor = m_waveMode ? 0.03f : 0.2f;
+    float baseFactor = m_waveMode ? 0.02f : 0.12f;
     m_speedFactor = baseFactor / (float)vp->view_scale_ppm;
-    m_speedFactor = wxMin(m_speedFactor, 50000.0f);
+    m_speedFactor = wxMin(m_speedFactor, 200.0f);
+    // Grid-relative cap: particles should not cross more than 2% of grid
+    // per frame at strong wind (20 m/s). Prevents racing in small regions.
+    float gridLonSpan = m_gridLonMax - m_gridLonMin;
+    float gridCap = gridLonSpan * 0.02f * 111320.0f / 20.0f;
+    m_speedFactor = wxMin(m_speedFactor, wxMax(gridCap, 5.0f));
     m_speedFactor = wxMax(m_speedFactor, 0.001f);
+
   }
 
   // Zoom-adaptive sub-steps: fewer when zoomed out (cheaper, still smooth)
@@ -585,11 +592,20 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
   int minParticles = m_waveMode ? 16 : 50;
   double zoomScale = sqrt(visibleFraction);
   int targetCount = (int)(screenPixels / pixelsPerParticle * density * zoomScale);
+
+  // For small grids: cap particles based on grid's screen-space area.
+  // ~1 particle per 400 screen pixels of grid area.
+  double gridScreenW = gridLonSpan * 111320.0 * vp->view_scale_ppm;
+  double gridScreenH = gridLatSpan * 110540.0 * vp->view_scale_ppm;
+  double gridScreenArea = gridScreenW * gridScreenH;
+  int gridAreaMax = wxMax((int)(gridScreenArea / 400.0), 4);
+  targetCount = wxMin(targetCount, gridAreaMax);
+
   targetCount = wxMin(targetCount, maxParticles);
-  targetCount = wxMax(targetCount, minParticles);
+  targetCount = wxMax(targetCount, wxMin(minParticles, gridAreaMax));
 
   int side = (int)ceil(sqrt((double)targetCount));
-  side = wxMax(side, m_waveMode ? 4 : 16);
+  side = wxMax(side, m_waveMode ? 4 : 4);
   side = wxMin(side, 283);
 
   if (side != m_particleTexSize) {
@@ -798,7 +814,7 @@ void DpGribGPUParticles::UpdateParticleState() {
   }
 
   // Animation uniforms — speed divided by sub-steps for smooth trails
-  float maxAge = m_waveMode ? 80.0f : 80.0f;
+  float maxAge = m_waveMode ? 80.0f : 150.0f;
   glUniform1f(glGetUniformLocation(prog, "uMaxAge"), maxAge);
   glUniform1f(glGetUniformLocation(prog, "uDropRate"), 0.003f);
   glUniform1f(glGetUniformLocation(prog, "uDropRateBump"), 0.01f);
