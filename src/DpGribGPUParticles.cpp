@@ -545,7 +545,8 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
     float gridLonSpan = m_gridLonMax - m_gridLonMin;
     float gridCap = gridLonSpan * 0.02f * 111320.0f / 20.0f;
     m_speedFactor = wxMin(m_speedFactor, wxMax(gridCap, 5.0f));
-    m_speedFactor = wxMax(m_speedFactor, 0.001f);
+    // Minimum 0.5 to keep displacement above float32 precision at extreme zoom.
+    m_speedFactor = wxMax(m_speedFactor, 0.5f);
 
   }
 
@@ -570,39 +571,32 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
     m_spawnLatMax = wxMin((float)(vp->clat + halfHDeg), m_gridLatMax);
   }
 
-  // Zoom-adaptive particle count — fewer when zoomed in, more when zoomed out
+  // Particle count: use min(screen area, grid screen area) as basis.
+  // Stable across all zoom levels — no visibleFraction scaling that
+  // causes count drops at extreme zoom or trail resets.
   double density = overlaySettings.Settings[settings].m_dParticleDensity;
   int screenPixels = vp->pix_width * vp->pix_height;
-
-  // Compute what fraction of the GRIB grid is visible
   double gridLonSpan = m_gridLonMax - m_gridLonMin;
   double gridLatSpan = m_gridLatMax - m_gridLatMin;
-  double visLonSpan = m_spawnLonMax - m_spawnLonMin;
-  double visLatSpan = m_spawnLatMax - m_spawnLatMin;
-  double visibleFraction = 1.0;
-  if (gridLonSpan > 0 && gridLatSpan > 0)
-    visibleFraction = (visLonSpan * visLatSpan) / (gridLonSpan * gridLatSpan);
-  visibleFraction = wxMin(visibleFraction, 1.0);
-  visibleFraction = wxMax(visibleFraction, 0.001);
 
-  // Base: ~1 particle per N screen pixels, scaled by visible fraction
-  // Waves use fewer particles (1 per 10000px) than wind (1 per 3000px)
-  double pixelsPerParticle = m_waveMode ? 800000.0 : 3000.0;
-  int maxParticles = m_waveMode ? 80 : 3000;
-  int minParticles = m_waveMode ? 16 : 50;
-  double zoomScale = sqrt(visibleFraction);
-  int targetCount = (int)(screenPixels / pixelsPerParticle * density * zoomScale);
-
-  // For small grids: cap particles based on grid's screen-space area.
-  // ~1 particle per 400 screen pixels of grid area.
   double gridScreenW = gridLonSpan * 111320.0 * vp->view_scale_ppm;
   double gridScreenH = gridLatSpan * 110540.0 * vp->view_scale_ppm;
   double gridScreenArea = gridScreenW * gridScreenH;
-  int gridAreaMax = wxMax((int)(gridScreenArea / 400.0), 4);
-  targetCount = wxMin(targetCount, gridAreaMax);
 
+  // When grid fills screen, scale down by visible fraction (clamped).
+  // Avoids clutter at close zoom while keeping density at world zoom.
+  double visRatio = wxMin(1.0, (double)screenPixels / gridScreenArea);
+  // Clamp to avoid trail resets at extreme zoom (side must stay stable)
+  visRatio = wxMax(visRatio, 0.05);
+  double effectiveArea = (double)screenPixels * sqrt(visRatio);
+  // Cap by grid screen area for small grids
+  effectiveArea = wxMin(effectiveArea, gridScreenArea);
+
+  double pixelsPerParticle = m_waveMode ? 50000.0 : 1500.0;
+  int targetCount = (int)(effectiveArea / pixelsPerParticle * density);
+  int maxParticles = m_waveMode ? 80 : 5000;
   targetCount = wxMin(targetCount, maxParticles);
-  targetCount = wxMax(targetCount, wxMin(minParticles, gridAreaMax));
+  targetCount = wxMax(targetCount, 4);
 
   int side = (int)ceil(sqrt((double)targetCount));
   side = wxMax(side, m_waveMode ? 4 : 4);

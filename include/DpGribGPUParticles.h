@@ -19,7 +19,7 @@ struct PlugIn_ViewPort;
 
 class DpGribGPUParticles {
 public:
-  static const int TRAIL_LEN = 16;
+  static const int TRAIL_LEN = 20;
   static const int VERTS_PER_PARTICLE = (TRAIL_LEN - 1) * 6;  // 90 max (stride reduces at runtime)
 
   DpGribGPUParticles();
