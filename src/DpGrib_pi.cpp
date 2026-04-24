@@ -1063,12 +1063,15 @@ void DpGrib_pi::Internal_SetGlobalSymbolSpacing(int pixels) {
 
   GribOverlaySettings& overlay = m_pGribCtrlBar->m_OverlaySettings;
 
-  // 1. Calculate Particle Density based on pixel spacing
-  // We map the pixel range [30..100] inversely to Density [2.0..0.5]
-  // 30px (Dense) -> 2.0 density
-  // 100px (Sparse) -> 0.5 density
-  double normalized = (double)(pixels - 30) / 70.0; // 0.0 to 1.0 (Dense to Sparse)
-  double density = 2.0 - (1.5 * normalized);        // Map to 2.0 down to 0.5
+  // 1. Calculate Particle Density based on pixel spacing.
+  // Exponential mapping over a wide range so the slider has a strong
+  // visible effect on wind/current particle count.
+  //   30px (max detail)  -> density 5.0
+  //   65px (mid)         -> density ~0.7
+  //   100px (min detail) -> density 0.1
+  double normalized = (double)(pixels - 30) / 70.0;  // 0.0 (dense) .. 1.0 (sparse)
+  double detail = 1.0 - normalized;                  // invert: 0.0 sparse .. 1.0 dense
+  double density = 0.1 * pow(50.0, detail);          // 0.1 .. 5.0 exponential
 
   // 2. Apply to WIND (Barbs + Particles)
   overlay.Settings[GribOverlaySettings::WIND].m_iBarbArrSpacing = pixels;
