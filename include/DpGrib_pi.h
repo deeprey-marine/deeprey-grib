@@ -230,6 +230,10 @@ public:
   void Internal_SetAbbreviatedNumbers(int layerId, bool abbreviated);
   bool Internal_AreNumbersAbbreviated(int layerId) const;
 
+  // Legend stacking (positioned by deeprey-gui)
+  void Internal_SetLegendLayout(int slot, int stackCount, bool drawInfoRow);
+  bool Internal_IsColorOverlayActive();
+
   // Meteogram data access methods
   bool Internal_HasActiveFile() const;
   wxDateTime Internal_GetTimeAt(int index) const;

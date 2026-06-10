@@ -552,6 +552,20 @@ bool DpGribAPI::HasActiveFile() const {
     return false;
 }
 
+void DpGribAPI::SetLegendLayout(int slot, int stackCount, bool drawInfoRow) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetLegendLayout(
+            slot, stackCount, drawInfoRow);
+    }
+}
+
+bool DpGribAPI::IsColorOverlayActive() {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsColorOverlayActive();
+    }
+    return false;
+}
+
 wxDateTime DpGribAPI::GetTimeAt(int index) const {
     if (m_plugin) {
         return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetTimeAt(index);

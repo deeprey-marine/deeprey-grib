@@ -714,6 +714,33 @@ static unsigned int LoadPngTexture(const wxString &path) {
 }  // namespace
 #endif
 
+bool GRIBOverlayFactory::HasActiveColorOverlay() {
+  // Mirror DoRenderGribOverlay's gates exactly. FIRST and most important: nothing
+  // is drawn at all unless a GRIB timeline record set is loaded for the current
+  // time (DoRenderGribOverlay returns early otherwise, before RenderColorLegend).
+  // Without this guard the default per-type plot/overlay flags make us report
+  // "active" even when no GRIB file is open, which wrongly hides the chart's
+  // course/direction icon when nothing is actually on screen.
+  if (!m_pGribTimelineRecordSet) return false;
+  // Then: one active overlay map (skip PRESSURE — isobars only) with a
+  // non-degenerate value range.
+  int active = -1;
+  for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; ++i) {
+    if (i == GribOverlaySettings::PRESSURE) continue;
+    if (!m_dlg.m_bDataPlot[i]) continue;
+    if (!m_Settings.Settings[i].m_bOverlayMap) continue;
+    active = i;
+    break;
+  }
+  if (active < 0) return false;
+  double mn, mx;
+  if (!GetActiveDataRange(active, mn, mx)) {
+    mn = m_Settings.GetMin(active);
+    mx = m_Settings.GetMax(active);
+  }
+  return mx > mn;
+}
+
 void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
 #if defined(ocpnUSE_GL) && !defined(USE_ANDROID_GLES2)
   if (!vp) return;
@@ -759,7 +786,15 @@ void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
     b = bb;
   };
 
-  // --- Bottom row: chart scale + nav icon + view-width ruler (deepview parity) ---
+  // Vertical stacking assigned by deeprey-gui (defaults = standalone single bar).
+  spec.legendSlot = m_legendSlot;
+  spec.stackCount = m_legendStackCount;
+  spec.drawSeparatorAboveLegend = (m_legendSlot > 0);
+
+  // --- Shared bottom row: chart scale + nav icon + view-width ruler. Drawn only
+  // by the owner (deepview owns it when both overlays stack), so skip all of this
+  // when deeprey-gui has told us another plugin draws the shared row. ---
+  if (m_legendDrawInfoRow) {
   if (m_legendScreenDpi <= 0) {
     wxScreenDC sdc;
     m_legendScreenDpi = sdc.GetPPI().x;
@@ -830,6 +865,7 @@ void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
       glDisable(GL_TEXTURE_2D);
     };
   }
+  }  // end if (m_legendDrawInfoRow)
 
   // Legend fonts (built once; TexFont::Build early-returns when unchanged).
   wxFont fNorm(11, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);

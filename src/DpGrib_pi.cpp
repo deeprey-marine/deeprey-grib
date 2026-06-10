@@ -1797,6 +1797,24 @@ bool DpGrib_pi::Internal_AreNumbersAbbreviated(int layerId) const {
 //          Meteogram Data Access Implementation
 //----------------------------------------------------------------------------------------------------------
 
+void DpGrib_pi::Internal_SetLegendLayout(int slot, int stackCount,
+                                        bool drawInfoRow) {
+  if (m_pGRIBOverlayFactory) {
+    m_pGRIBOverlayFactory->SetLegendLayout(slot, stackCount, drawInfoRow);
+  }
+}
+
+bool DpGrib_pi::Internal_IsColorOverlayActive() {
+  // Must match the render path's gates EXACTLY. The master toggle is m_bShowGrib:
+  // DoRenderGLOverlay/DoRenderOverlay bail out with `if (!m_bShowGrib) return true;`
+  // before the factory ever renders. The factory's own settings (m_bDataPlot /
+  // m_bOverlayMap) stay ON when weather is toggled off, so without this guard we
+  // report a phantom "active" overlay — which made the chart's shared bottom row
+  // (scale/nav-icon/ruler) get handed to a GRIB legend that isn't actually drawn.
+  return m_bShowGrib && m_pGRIBOverlayFactory &&
+         m_pGRIBOverlayFactory->HasActiveColorOverlay();
+}
+
 bool DpGrib_pi::Internal_HasActiveFile() const {
   if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
     return false;
