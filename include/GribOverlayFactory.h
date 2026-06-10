@@ -322,6 +322,31 @@ private:
 
   void DrawProjectedPosition(int x, int y);
 
+  // Draws the on-screen color legend for the single active overlay map, using
+  // the shared DpColorBar widget. GL path only; no-op when no overlay is shown.
+  void RenderColorLegend(PlugIn_ViewPort *vp);
+
+  // Computes the actual displayed-data value range (in display units) for the
+  // active overlay, so the legend keys the colours really on the map rather than
+  // the fixed palette bounds. Raw min/max are cached and recomputed only when the
+  // overlay / timeline / altitude changes; calibration (units) is applied per
+  // call. Returns false if there is no usable data or the range is degenerate.
+  bool GetActiveDataRange(int settings, double &dispMin, double &dispMax);
+
+  int m_legendKeySettings = -1;
+  const void *m_legendKeySet = nullptr;
+  int m_legendKeyAlt = -1;
+  double m_legendRawMin = 0.0;
+  double m_legendRawMax = 0.0;
+  bool m_legendHasData = false;
+
+  // Legend fonts matching deepview (normal 11pt + bold 12pt, SWISS family).
+  TexFont m_TexFontLegend, m_TexFontLegendBold;
+  // Nav-mode icon textures (0=north, 1=course, 2=head up); lazily GL-loaded.
+  unsigned int m_navTex[3] = {0, 0, 0};
+  bool m_navTexTried = false;
+  int m_legendScreenDpi = 0;
+
   void drawDoubleArrow(int x, int y, double ang, wxColour arrowColor,
                        int arrowWidth, int arrowSizeIdx, double scale);
   void drawSingleArrow(int x, int y, double ang, wxColour arrowColor,

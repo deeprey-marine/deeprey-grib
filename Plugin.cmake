@@ -52,11 +52,13 @@ set(PKG_INFO_URL https://opencpn.org/OpenCPN/plugins/)
 set(API_SOURCES
     src/DpGribAPI.cpp
     deeprey-api/units/DpUnitManager.cpp
+    deeprey-api/visualization/DpColorBar.cpp
 )
 set(API_HEADERS
     deeprey-api/grib/DpGribAPI.h
     deeprey-api/grib/DpGribPersistentSettings.h
     deeprey-api/units/DpUnitManager.h
+    deeprey-api/visualization/DpColorBar.h
 )
 
 # Core plugin files
@@ -80,6 +82,7 @@ set(CORE_SOURCES
     src/email.cpp
     src/GrabberWin.cpp
     src/zuFile.cpp
+    src/GribColorBarAdapter.cpp
 )
 
 set(CORE_HEADERS
@@ -105,6 +108,7 @@ set(CORE_HEADERS
     include/zuFile.h
     include/icons.h
     include/msg.h
+    include/GribColorBarAdapter.h
 )
 
 # OpenGL/Drawing files
