@@ -196,16 +196,20 @@ public:
   }
 
   void SetGribTimelineRecordSet(GribTimelineRecordSet *pGribTimelineRecordSet1);
-  bool RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp);
-  bool RenderGLGribOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp);
+  bool RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp, int canvasIndex = 0);
+  bool RenderGLGribOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
+                           int canvasIndex = 0);
 
   void Reset();
   void ClearCachedData(void);
   void ClearCachedLabel(void) { m_labelCache.clear(); }
   void ClearParticles() {
-    delete m_ParticleMap;
-    m_ParticleMap = nullptr;
-    if (m_gpuParticles) m_gpuParticles->Reset();
+    // Per-canvas particle state: clear every canvas's CPU map and reset every
+    // canvas's GPU instance so a setting/time change restarts cleanly on all.
+    for (auto &kv : m_particleMapByCanvas) delete kv.second;
+    m_particleMapByCanvas.clear();
+    for (auto &kv : m_gpuParticlesByCanvas)
+      if (kv.second) kv.second->Reset();
     m_gpuAnimTimer.Stop();
   }
 
@@ -238,7 +242,7 @@ private:
   void InitColorsTable();
 
   void SettingsIdToGribId(int i, int &idx, int &idy, bool &polar);
-  bool DoRenderGribOverlay(PlugIn_ViewPort *vp);
+  bool DoRenderGribOverlay(PlugIn_ViewPort *vp, int canvasIndex = 0);
   /**
    * Renders wind or current barbed arrows on the chart.
    *
@@ -325,7 +329,8 @@ private:
    * @param pGR Array of GribRecord pointers containing the data
    * @param vp Current viewport for rendering
    */
-  void RenderGribParticles(int settings, GribRecord **pGR, PlugIn_ViewPort *vp);
+  void RenderGribParticles(int settings, GribRecord **pGR, PlugIn_ViewPort *vp,
+                           int canvasIndex = 0);
   void DrawLineBuffer(LineBuffer &buffer);
   void OnParticleTimer(wxTimerEvent &event);
   void OnGPUAnimTimer(wxTimerEvent &event);
@@ -405,7 +410,11 @@ private:
   bool m_bUseGPURenderer;
   bool m_bGPUInitialized;
   DpGribGLCapabilities m_glCaps;
-  DpGribGPUParticles *m_gpuParticles;
+  // One GPU particle renderer per chart canvas (keyed by canvasIndex). Created
+  // lazily in RenderGribParticles so single-canvas use allocates only index 0.
+  // Each instance owns its own viewport-sized FBOs / pan-tracking caches, so two
+  // canvases at different pan/zoom no longer corrupt each other's animation.
+  std::map<int, DpGribGPUParticles *> m_gpuParticlesByCanvas;
 
   wxString m_Message;
   wxString m_Message_Hiden;
@@ -428,7 +437,9 @@ private:
   GRIBUICtrlBar &m_dlg;
   GribOverlaySettings &m_Settings;
 
-  ParticleMap *m_ParticleMap;
+  // One CPU particle map per chart canvas (keyed by canvasIndex). Each holds its
+  // own last_viewport + cached screen coords; created lazily in RenderGribParticles.
+  std::map<int, ParticleMap *> m_particleMapByCanvas;
   wxTimer m_tParticleTimer;
   wxTimer m_gpuAnimTimer;  // dedicated timer for GPU particle animation
   bool m_bUpdateParticles;

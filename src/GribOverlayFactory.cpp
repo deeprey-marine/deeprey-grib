@@ -242,9 +242,9 @@ GRIBOverlayFactory::GRIBOverlayFactory(GRIBUICtrlBar &dlg)
   m_bUseGPURenderer = false;
   m_bGPUInitialized = false;
   m_glCaps = {false, false, 0};
-  m_gpuParticles = nullptr;
+  // m_gpuParticlesByCanvas / m_particleMapByCanvas default-empty; per-canvas
+  // instances are created lazily in RenderGribParticles.
 
-  m_ParticleMap = nullptr;
   m_tParticleTimer.Connect(
       wxEVT_TIMER, wxTimerEventHandler(GRIBOverlayFactory::OnParticleTimer),
       nullptr, this);
@@ -377,8 +377,9 @@ GRIBOverlayFactory::~GRIBOverlayFactory() {
 
   ClearParticles();
 
-  delete m_gpuParticles;
-  m_gpuParticles = nullptr;
+  // ClearParticles() Reset()s the per-canvas GPU instances; delete them here.
+  for (auto &kv : m_gpuParticlesByCanvas) delete kv.second;
+  m_gpuParticlesByCanvas.clear();
 
   if (m_bGPUInitialized) grib_CleanupGPUShaders();
 
@@ -424,7 +425,8 @@ void GRIBOverlayFactory::ClearCachedData(void) {
 #endif
 
 bool GRIBOverlayFactory::RenderGLGribOverlay(wxGLContext *pcontext,
-                                             PlugIn_ViewPort *vp) {
+                                             PlugIn_ViewPort *vp,
+                                             int canvasIndex) {
   if (g_bpause) return false;
 
   // qDebug() << "RenderGLGribOverlay" << sw.GetTime();
@@ -457,14 +459,15 @@ bool GRIBOverlayFactory::RenderGLGribOverlay(wxGLContext *pcontext,
     m_bGPUInitialized = true;
   }
 
-  bool rv = DoRenderGribOverlay(vp);
+  bool rv = DoRenderGribOverlay(vp, canvasIndex);
 
   // qDebug() << "RenderGLGribOverlayDone" << sw.GetTime();
 
   return rv;
 }
 
-bool GRIBOverlayFactory::RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp) {
+bool GRIBOverlayFactory::RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp,
+                                           int canvasIndex) {
   if (!m_oDC || m_oDC->UsesGL()) {
     if (m_oDC) {
       delete m_oDC;
@@ -485,7 +488,7 @@ bool GRIBOverlayFactory::RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp) {
 #endif
     m_pdc = &dc;
 #endif
-  bool rv = DoRenderGribOverlay(vp);
+  bool rv = DoRenderGribOverlay(vp, canvasIndex);
 
   return rv;
 }
@@ -551,7 +554,8 @@ void GRIBOverlayFactory::SettingsIdToGribId(int i, int &idx, int &idy,
   }
 }
 
-bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
+bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp,
+                                             int canvasIndex) {
   if (!m_pGribTimelineRecordSet) {
 #if 0
     DrawMessageWindow((m_Message), vp->pix_width, vp->pix_height,
@@ -588,7 +592,7 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
             RenderGribBarbedArrows(i, pGR, vp);
             RenderGribIsobar(i, pGR, pIA, vp);
             RenderGribNumbers(i, pGR, vp);
-            RenderGribParticles(i, pGR, vp);
+            RenderGribParticles(i, pGR, vp, canvasIndex);
           } else {
             if (m_Settings.Settings[i].m_iBarbedVisibility)
               RenderGribBarbedArrows(i, pGR, vp);
@@ -617,7 +621,7 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
         RenderGribIsobar(i, pGR, pIA, vp);
         RenderGribDirectionArrows(i, pGR, vp);
         RenderGribNumbers(i, pGR, vp);
-        RenderGribParticles(i, pGR, vp);
+        RenderGribParticles(i, pGR, vp, canvasIndex);
       }
     }
   }
@@ -2392,7 +2396,8 @@ void GRIBOverlayFactory::DrawNumbers(wxPoint p, double value, int settings,
 }
 
 void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
-                                             PlugIn_ViewPort *vp) {
+                                             PlugIn_ViewPort *vp,
+                                             int canvasIndex) {
   if (!m_Settings.Settings[settings].m_bParticles)
     return;
 
@@ -2408,13 +2413,19 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
 
   if (!pGRX || !pGRY) return;
 
-  // GPU particle path
-  if (m_bUseGPURenderer && m_gpuParticles) {
+  // GPU particle path — one renderer instance per canvas (lazily created), so
+  // each canvas keeps its own viewport-sized FBOs and pan-tracking caches.
+  if (m_bUseGPURenderer) {
+    DpGribGPUParticles *&gpu = m_gpuParticlesByCanvas[canvasIndex];
+    if (!gpu) {
+      gpu = new DpGribGPUParticles();
+      gpu->Initialize(m_glCaps);
+    }
     GribRecord *pGRPeriod = nullptr;
     if (settings == GribOverlaySettings::WAVE)
       pGRPeriod = pGR[Idx_WVPER];
-    m_gpuParticles->Update(pGRX, pGRY, settings, m_Settings, vp, pGRPeriod);
-    m_gpuParticles->Render(vp);
+    gpu->Update(pGRX, pGRY, settings, m_Settings, vp, pGRPeriod);
+    gpu->Render(vp);
     ScheduleGPUParticleRefresh();
     return;
   }
@@ -2422,11 +2433,17 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
   wxStopWatch sw;
   sw.Start();
 
-  if (m_ParticleMap && m_ParticleMap->m_Setting != settings) ClearParticles();
+  // Per-canvas CPU particle state. The reference into the map stays valid for the
+  // rest of this function (no rehash; we don't erase other entries here). On a
+  // setting change, recreate only this canvas's map so the others are untouched.
+  ParticleMap *&pm = m_particleMapByCanvas[canvasIndex];
+  if (pm && pm->m_Setting != settings) {
+    delete pm;
+    pm = nullptr;
+  }
+  if (!pm) pm = new ParticleMap(settings);
 
-  if (!m_ParticleMap) m_ParticleMap = new ParticleMap(settings);
-
-  std::vector<Particle> &particles = m_ParticleMap->m_Particles;
+  std::vector<Particle> &particles = pm->m_Particles;
 
   const int max_duration = 50;
   const int run_count = 6;
@@ -2439,10 +2456,10 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
 
   std::vector<Particle>::iterator it;
   // if the history size changed
-  if (m_ParticleMap->history_size != history_size) {
+  if (pm->history_size != history_size) {
     for (unsigned int i = 0; i < particles.size(); i++) {
       Particle &it = particles[i];
-      if (m_ParticleMap->history_size > history_size &&
+      if (pm->history_size > history_size &&
           it.m_HistoryPos >= history_size) {
         it = particles[particles.size() - 1];
         particles.pop_back();
@@ -2452,12 +2469,12 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
 
       it.m_HistorySize = it.m_HistoryPos + 1;
     }
-    m_ParticleMap->history_size = history_size;
+    pm->history_size = history_size;
   }
 
   // Did the viewport change?  update cached screen coordinates
   // we could use normalized coordinates in opengl and avoid this
-  PlugIn_ViewPort &lvp = m_ParticleMap->last_viewport;
+  PlugIn_ViewPort &lvp = pm->last_viewport;
   if (lvp.bValid == false || vp->view_scale_ppm != lvp.view_scale_ppm ||
       vp->skew != lvp.skew || vp->rotation != lvp.rotation) {
     for (it = particles.begin(); it != particles.end(); it++)
@@ -2648,20 +2665,20 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
   }
 
   int cnt = 0;
-  unsigned char *&ca = m_ParticleMap->color_array;
-  float *&va = m_ParticleMap->vertex_array;
-  float *&caf = m_ParticleMap->color_float_array;
+  unsigned char *&ca = pm->color_array;
+  float *&va = pm->vertex_array;
+  float *&caf = pm->color_float_array;
 
-  if (m_ParticleMap->array_size < particles.size() && !m_pdc) {
-    m_ParticleMap->array_size = 2 * particles.size();
+  if (pm->array_size < particles.size() && !m_pdc) {
+    pm->array_size = 2 * particles.size();
     delete[] ca;
     delete[] va;
     delete[] caf;
 
     ca =
-        new unsigned char[m_ParticleMap->array_size * MAX_PARTICLE_HISTORY * 8];
-    caf = new float[m_ParticleMap->array_size * MAX_PARTICLE_HISTORY * 8];
-    va = new float[m_ParticleMap->array_size * MAX_PARTICLE_HISTORY * 4];
+        new unsigned char[pm->array_size * MAX_PARTICLE_HISTORY * 8];
+    caf = new float[pm->array_size * MAX_PARTICLE_HISTORY * 8];
+    va = new float[pm->array_size * MAX_PARTICLE_HISTORY * 4];
   }
 
   // draw particles
@@ -3280,8 +3297,7 @@ void GRIBOverlayFactory::InitGPURenderer() {
   m_glCaps = grib_DetectCapabilities();
   if (m_glCaps.hasGL33 && grib_InitGPUShaders()) {
     m_bUseGPURenderer = true;
-    m_gpuParticles = new DpGribGPUParticles();
-    m_gpuParticles->Initialize(m_glCaps);
+    // Per-canvas particle instances are created lazily in RenderGribParticles.
     printf("GRIB GPU: Particle renderer enabled\n");
   } else {
     m_bUseGPURenderer = false;

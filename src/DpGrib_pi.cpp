@@ -608,7 +608,7 @@ bool DpGrib_pi::DoRenderOverlay(wxDC &dc, PlugIn_ViewPort *vp, int canvasIndex) 
   if (!m_pGribCtrlBar || !m_pGRIBOverlayFactory)
     return false;
 
-  m_pGRIBOverlayFactory->RenderGribOverlay(dc, vp);
+  m_pGRIBOverlayFactory->RenderGribOverlay(dc, vp, canvasIndex);
   if (PluginGetFocusCanvas() == GetCanvasByIndex(canvasIndex)) {
     m_pGribCtrlBar->SetViewPortWithFocus(vp);
   }
@@ -636,7 +636,7 @@ bool DpGrib_pi::DoRenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
   if (!m_pGribCtrlBar || !m_pGRIBOverlayFactory)
     return false;
 
-  m_pGRIBOverlayFactory->RenderGLGribOverlay(pcontext, vp);
+  m_pGRIBOverlayFactory->RenderGLGribOverlay(pcontext, vp, canvasIndex);
   if (PluginGetFocusCanvas() == GetCanvasByIndex(canvasIndex)) {
     m_pGribCtrlBar->SetViewPortWithFocus(vp);
   }
