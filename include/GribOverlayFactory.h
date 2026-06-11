@@ -216,6 +216,20 @@ public:
                        unsigned char &g, unsigned char &b);
   wxColour GetGraphicColor(int settings, double val);
 
+  // Position the color legend for vertical stacking (set by deeprey-gui). See
+  // DpGribAPI::SetLegendLayout. Defaults reproduce the standalone single bar.
+  void SetLegendLayout(int slot, int stackCount, bool drawInfoRow) {
+    m_legendSlot = slot;
+    m_legendStackCount = stackCount;
+    m_legendDrawInfoRow = drawInfoRow;
+  }
+
+  // True iff a colored overlay legend would actually be drawn this frame (same
+  // active-overlay + non-degenerate-range gate RenderColorLegend uses). The
+  // single source of truth for "weather legend is on screen", so deeprey-gui's
+  // arbiter and course-button logic match what is really rendered.
+  bool HasActiveColorOverlay();
+
   wxSize m_ParentSize;
 
   pi_ocpnDC *m_oDC;
@@ -321,6 +335,37 @@ private:
   void DrawMessageWindow(wxString msg, int x, int y, wxFont *mfont);
 
   void DrawProjectedPosition(int x, int y);
+
+  // Draws the on-screen color legend for the single active overlay map, using
+  // the shared DpColorBar widget. GL path only; no-op when no overlay is shown.
+  void RenderColorLegend(PlugIn_ViewPort *vp);
+
+  // Computes the actual displayed-data value range (in display units) for the
+  // active overlay, so the legend keys the colours really on the map rather than
+  // the fixed palette bounds. Raw min/max are cached and recomputed only when the
+  // overlay / timeline / altitude changes; calibration (units) is applied per
+  // call. Returns false if there is no usable data or the range is degenerate.
+  bool GetActiveDataRange(int settings, double &dispMin, double &dispMax);
+
+  int m_legendKeySettings = -1;
+  const void *m_legendKeySet = nullptr;
+  int m_legendKeyAlt = -1;
+  double m_legendRawMin = 0.0;
+  double m_legendRawMax = 0.0;
+  bool m_legendHasData = false;
+
+  // Legend fonts matching deepview (normal 11pt + bold 12pt, SWISS family).
+  TexFont m_TexFontLegend, m_TexFontLegendBold;
+  // Nav-mode icon textures (0=north, 1=course, 2=head up); lazily GL-loaded.
+  unsigned int m_navTex[3] = {0, 0, 0};
+  bool m_navTexTried = false;
+  int m_legendScreenDpi = 0;
+
+  // Vertical stacking, assigned by deeprey-gui via SetLegendLayout. Defaults give
+  // the standalone single-bar layout (slot 0, alone, owns the shared info row).
+  int m_legendSlot = 0;
+  int m_legendStackCount = 1;
+  bool m_legendDrawInfoRow = true;
 
   void drawDoubleArrow(int x, int y, double ang, wxColour arrowColor,
                        int arrowWidth, int arrowSizeIdx, double scale);

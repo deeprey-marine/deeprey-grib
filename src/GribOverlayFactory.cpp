@@ -41,6 +41,12 @@
 
 #include "GribUIDialog.h"
 #include "GribOverlayFactory.h"
+#include "DpColorBar.h"
+#include "GribColorBarAdapter.h"
+
+#include <wx/dcscreen.h>
+#include <wx/filename.h>
+#include <vector>
 
 extern int m_Altitude;
 extern bool g_bpause;
@@ -660,7 +666,305 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
 #endif
     }
   }
+
+#ifdef ocpnUSE_GL
+  if (!m_pdc) RenderColorLegend(vp);  // screen-space legend, on top, GL only
+#endif
   return true;
+}
+
+#if defined(ocpnUSE_GL) && !defined(USE_ANDROID_GLES2)
+namespace {
+// Loads a PNG file into an RGBA GL texture. Returns 0 on failure. GL context
+// must be current.
+static unsigned int LoadPngTexture(const wxString &path) {
+  if (!wxFileExists(path)) return 0;
+  wxImage img;
+  if (!img.LoadFile(path, wxBITMAP_TYPE_PNG) || !img.IsOk()) return 0;
+  const int w = img.GetWidth(), h = img.GetHeight();
+  const unsigned char *rgb = img.GetData();
+  if (!rgb) return 0;
+  const unsigned char *alpha = img.HasAlpha() ? img.GetAlpha() : nullptr;
+  std::vector<unsigned char> rgba(static_cast<size_t>(w) * h * 4);
+  for (int i = 0; i < w * h; ++i) {
+    rgba[i * 4 + 0] = rgb[i * 3 + 0];
+    rgba[i * 4 + 1] = rgb[i * 3 + 1];
+    rgba[i * 4 + 2] = rgb[i * 3 + 2];
+    rgba[i * 4 + 3] = alpha ? alpha[i] : 255;
+  }
+  GLuint tex = 0;
+  glGenTextures(1, &tex);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  // Reset pixel-store state: GRIB's overlay-map upload leaves GL_UNPACK_ROW_LENGTH
+  // set to its texture width, which corrupts this tightly-packed upload (colors
+  // come out wrong). Restore defaults before uploading.
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+  glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+  glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+               rgba.data());
+  glBindTexture(GL_TEXTURE_2D, 0);
+  return tex;
+}
+}  // namespace
+#endif
+
+bool GRIBOverlayFactory::HasActiveColorOverlay() {
+  // Mirror DoRenderGribOverlay's gates exactly. FIRST and most important: nothing
+  // is drawn at all unless a GRIB timeline record set is loaded for the current
+  // time (DoRenderGribOverlay returns early otherwise, before RenderColorLegend).
+  // Without this guard the default per-type plot/overlay flags make us report
+  // "active" even when no GRIB file is open, which wrongly hides the chart's
+  // course/direction icon when nothing is actually on screen.
+  if (!m_pGribTimelineRecordSet) return false;
+  // Then: one active overlay map (skip PRESSURE — isobars only) with a
+  // non-degenerate value range.
+  int active = -1;
+  for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; ++i) {
+    if (i == GribOverlaySettings::PRESSURE) continue;
+    if (!m_dlg.m_bDataPlot[i]) continue;
+    if (!m_Settings.Settings[i].m_bOverlayMap) continue;
+    active = i;
+    break;
+  }
+  if (active < 0) return false;
+  double mn, mx;
+  if (!GetActiveDataRange(active, mn, mx)) {
+    mn = m_Settings.GetMin(active);
+    mx = m_Settings.GetMax(active);
+  }
+  return mx > mn;
+}
+
+void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
+#if defined(ocpnUSE_GL) && !defined(USE_ANDROID_GLES2)
+  if (!vp) return;
+
+  // Find the single active colored overlay map. GRIB enforces exactly one at a
+  // time (CursorData turns the previous one off) and PRESSURE has no fill.
+  // m_bDataPlot is sized [GEO_ALTITUDE], so never index past it.
+  int active = -1;
+  for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; ++i) {
+    if (i == GribOverlaySettings::PRESSURE) continue;
+    if (!m_dlg.m_bDataPlot[i]) continue;
+    if (!m_Settings.Settings[i].m_bOverlayMap) continue;
+    active = i;
+    break;
+  }
+  if (active < 0) return;
+
+  // Key the legend to the data actually on the map (its real min/max), not the
+  // fixed palette bounds. Fall back to the palette bounds if the range can't be
+  // computed.
+  double mn, mx;
+  if (!GetActiveDataRange(active, mn, mx)) {
+    mn = m_Settings.GetMin(active);
+    mx = m_Settings.GetMax(active);
+  }
+  if (!(mx > mn)) return;  // degenerate range -> no meaningful legend
+
+  // Build the legend spec from the active overlay. getLabelString gives the
+  // same number formatting as the on-chart values; the unit goes in the title.
+  wxString titleStr = GribOverlaySettings::NameFromIndex(active) + _T(" (") +
+                      m_Settings.GetUnitSymbol(active) + _T(")");
+  dp::DpColorBarSpec spec;
+  spec.title = std::string(titleStr.ToUTF8().data());
+  spec.minLabel = std::string(getLabelString(mn, active).ToUTF8().data());
+  spec.maxLabel = std::string(getLabelString(mx, active).ToUTF8().data());
+  const int settings = active;
+  spec.colorAt = [this, settings, mn, mx](float t, uint8_t &r, uint8_t &g,
+                                          uint8_t &b) {
+    unsigned char rr, gg, bb;
+    GetGraphicColor(settings, mn + t * (mx - mn), rr, gg, bb);
+    r = rr;
+    g = gg;
+    b = bb;
+  };
+
+  // Vertical stacking assigned by deeprey-gui (defaults = standalone single bar).
+  spec.legendSlot = m_legendSlot;
+  spec.stackCount = m_legendStackCount;
+  spec.drawSeparatorAboveLegend = (m_legendSlot > 0);
+
+  // --- Shared bottom row: chart scale + nav icon + view-width ruler. Drawn only
+  // by the owner (deepview owns it when both overlays stack), so skip all of this
+  // when deeprey-gui has told us another plugin draws the shared row. ---
+  if (m_legendDrawInfoRow) {
+  if (m_legendScreenDpi <= 0) {
+    wxScreenDC sdc;
+    m_legendScreenDpi = sdc.GetPPI().x;
+    if (m_legendScreenDpi <= 0) m_legendScreenDpi = 96;
+  }
+  const double mpp = 1.0 / vp->view_scale_ppm;       // meters per pixel
+  const double sf = cos(vp->clat * 0.017453292519943295);  // lat compression
+  const double scaleD = mpp * sf * 39.3700787;       // INCHES_PER_METER
+  const long ratio = lround(scaleD * m_legendScreenDpi);
+  wxString scaleStr;
+  if (ratio >= 1000000)
+    scaleStr = wxString::Format(_T("1:%.1fM"), ratio / 1000000.0);
+  else if (ratio >= 100000)
+    scaleStr = wxString::Format(_T("1:%ldk"), ratio / 1000);
+  else
+    scaleStr = wxString::Format(_T("1:%ld"), ratio);
+
+  const double widthMeters = vp->pix_width * mpp * sf;
+  const double widthNM = widthMeters / 1852.0;
+  wxString widthStr = (widthNM >= 0.1)
+                          ? wxString::Format(_T("%.3f NM"), widthNM)
+                          : wxString::Format(_T("%.0f m"), widthMeters);
+
+  spec.showInfoRow = true;
+  spec.scaleText = std::string(scaleStr.ToUTF8().data());
+  spec.widthText = std::string(widthStr.ToUTF8().data());
+  spec.infoRotation = (float)vp->rotation;
+
+  // Nav-mode icon (lazy GL load; falls back to the widget's north arrow).
+  if (!m_navTexTried) {
+    m_navTexTried = true;
+    wxString d = GetPluginDataDir("deeprey_grib_pi") +
+                 wxFileName::GetPathSeparator() + _T("data") +
+                 wxFileName::GetPathSeparator();
+    m_navTex[0] = LoadPngTexture(d + _T("north_up.png"));
+    m_navTex[1] = LoadPngTexture(d + _T("course_up.png"));
+    m_navTex[2] = LoadPngTexture(d + _T("head_up.png"));
+  }
+  unsigned int navTex = m_navTex[0];
+  PI_NavMode navMode = GetNavigationMode(0);
+  if (navMode == PI_COURSE_UP_MODE)
+    navTex = m_navTex[1];
+  else if (navMode == PI_HEAD_UP_MODE)
+    navTex = m_navTex[2];
+  if (navTex) {
+    spec.drawCenterIcon = [navTex](int cx, int cy, int size) {
+      const float ix = cx - size / 2.0f, iy = cy - size / 2.0f;
+      glActiveTexture(GL_TEXTURE0);
+      glEnable(GL_TEXTURE_2D);
+      glBindTexture(GL_TEXTURE_2D, navTex);
+      // REPLACE: use the texture's true RGBA directly, bypassing any leftover
+      // texture-env / combiner state from GRIB's shader rendering (which was
+      // corrupting the icon's colours).
+      glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+      glColor4f(1.f, 1.f, 1.f, 1.f);
+      glBegin(GL_QUADS);
+      glTexCoord2f(0, 0);
+      glVertex2f(ix, iy);
+      glTexCoord2f(1, 0);
+      glVertex2f(ix + size, iy);
+      glTexCoord2f(1, 1);
+      glVertex2f(ix + size, iy + size);
+      glTexCoord2f(0, 1);
+      glVertex2f(ix, iy + size);
+      glEnd();
+      glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+      glBindTexture(GL_TEXTURE_2D, 0);
+      glDisable(GL_TEXTURE_2D);
+    };
+  }
+  }  // end if (m_legendDrawInfoRow)
+
+  // Legend fonts (built once; TexFont::Build early-returns when unchanged).
+  wxFont fNorm(11, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+  wxFont fBold(12, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+  m_TexFontLegend.Build(fNorm);
+  m_TexFontLegendBold.Build(fBold);
+
+  // Host owns the matrices (TexFont relies on a pixel-coord modelview); the
+  // widget guards its own attribute state.
+  glUseProgram(0);
+  glActiveTexture(GL_TEXTURE0);  // GRIB shaders may leave a different unit active
+  glMatrixMode(GL_PROJECTION);
+  glPushMatrix();
+  glLoadIdentity();
+  glOrtho(0, vp->pix_width, vp->pix_height, 0, -1, 1);
+  glMatrixMode(GL_MODELVIEW);
+  glPushMatrix();
+  glLoadIdentity();
+
+  GribTexFontColorBarText backend(m_TexFontLegend, m_TexFontLegendBold);
+  dp::DpColorBarStyle style;  // deepview look (dark translucent, white text)
+  dp::RenderColorBar(spec, style, backend, 20, 20);
+
+  glMatrixMode(GL_MODELVIEW);
+  glPopMatrix();
+  glMatrixMode(GL_PROJECTION);
+  glPopMatrix();
+  glMatrixMode(GL_MODELVIEW);
+#else
+  (void)vp;
+#endif
+}
+
+bool GRIBOverlayFactory::GetActiveDataRange(int settings, double &dispMin,
+                                            double &dispMax) {
+  if (!m_pGribTimelineRecordSet) return false;
+  GribRecord **pGR = m_pGribTimelineRecordSet->m_GribRecordPtrArray;
+
+  // Recompute the raw range only when the data source changes; units are applied
+  // below on every call (cheap), so a unit switch needs no recompute.
+  const bool cacheHit =
+      m_legendHasData && m_legendKeySettings == settings &&
+      m_legendKeySet == static_cast<const void *>(m_pGribTimelineRecordSet) &&
+      m_legendKeyAlt == m_Altitude;
+
+  if (!cacheHit) {
+    m_legendHasData = false;
+    m_legendKeySettings = settings;
+    m_legendKeySet = static_cast<const void *>(m_pGribTimelineRecordSet);
+    m_legendKeyAlt = m_Altitude;
+
+    int idx, idy;
+    bool polar;
+    SettingsIdToGribId(settings, idx, idy, polar);
+    if (idx < 0 || !pGR[idx]) return false;
+
+    GribRecord *pGRA = pGR[idx], *pGRM = nullptr;
+    if (idy >= 0 && !polar && pGR[idy]) {
+      pGRM = GribRecord::MagnitudeRecord(*pGR[idx], *pGR[idy]);
+      if (!pGRM || !pGRM->isOk()) {
+        delete pGRM;
+        return false;
+      }
+      pGRA = pGRM;
+    }
+
+    double lo = 0.0, hi = 0.0;
+    bool any = false;
+    const int ni = pGRA->getNi(), nj = pGRA->getNj();
+    for (int j = 0; j < nj; ++j) {
+      for (int i = 0; i < ni; ++i) {
+        const double v = pGRA->getValue(i, j);
+        if (v == GRIB_NOTDEF) continue;
+        if (!any) {
+          lo = hi = v;
+          any = true;
+        } else if (v < lo) {
+          lo = v;
+        } else if (v > hi) {
+          hi = v;
+        }
+      }
+    }
+
+    delete pGRM;
+    if (!any) return false;
+    m_legendRawMin = lo;
+    m_legendRawMax = hi;
+    m_legendHasData = true;
+  }
+
+  dispMin = m_Settings.CalibrateValue(settings, m_legendRawMin);
+  dispMax = m_Settings.CalibrateValue(settings, m_legendRawMax);
+  if (dispMax < dispMin) {  // safety for any non-monotonic calibration
+    const double t = dispMin;
+    dispMin = dispMax;
+    dispMax = t;
+  }
+  return dispMax > dispMin;
 }
 
 // isClearSky checks that there is no rain or clouds at all.
