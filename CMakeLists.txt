@@ -63,6 +63,8 @@ include_directories(
 
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/deeprey-api/grib")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/deeprey-api/units")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/deeprey-api/theme")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/deeprey-api/visualization")
 
 # ============================================================================
 # Link OpenCPN API
