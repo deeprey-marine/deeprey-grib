@@ -196,6 +196,15 @@ public:
   }
 
   void SetGribTimelineRecordSet(GribTimelineRecordSet *pGribTimelineRecordSet1);
+  // Per-canvas timeline (dual-chart mode): each canvas can display a different
+  // time step from the same loaded GRIB file. Passing nullptr makes that canvas
+  // fall back to the shared/global set. NON-OWNING (the control bar owns the
+  // sets, mirroring the single-set ownership) — the caller must keep them alive.
+  void SetGribTimelineRecordSet(GribTimelineRecordSet *set, int canvasIndex);
+  // Point the factory's active timeline + overlay-texture cache at one canvas for
+  // the render/query that follows. The render is single-threaded, so swapping the
+  // active pointers per canvas is safe.
+  void SelectCanvasContext(int canvasIndex);
   bool RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp, int canvasIndex = 0);
   bool RenderGLGribOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                            int canvasIndex = 0);
@@ -237,6 +246,8 @@ public:
   // single source of truth for "weather legend is on screen", so deeprey-gui's
   // arbiter and course-button logic match what is really rendered.
   bool HasActiveColorOverlay();
+  // Per-canvas variant: selects the canvas's timeline first (dual-chart mode).
+  bool HasActiveColorOverlay(int canvasIndex);
 
   wxSize m_ParentSize;
 
@@ -408,7 +419,17 @@ private:
 
   double m_last_vp_scale;
 
-  GribOverlay *m_pOverlay[GribOverlaySettings::SETTINGS_COUNT];
+  // Overlay-map color textures, cached per canvas (dual-chart mode) so two
+  // canvases at different times/layers don't reuse each other's texture.
+  // m_pOverlay aliases the active canvas's row (set by SelectCanvasContext).
+  GribOverlay *m_overlayByCanvas[2][GribOverlaySettings::SETTINGS_COUNT];
+  GribOverlay **m_pOverlay;  // = m_overlayByCanvas[m_activeCanvas]
+  int m_activeCanvas = 0;
+
+  // Per-canvas timeline (non-owning) + shared/global fallback (non-owning).
+  GribTimelineRecordSet *m_timelineByCanvas[2] = {nullptr, nullptr};
+  GribTimelineRecordSet *m_timelineGlobal = nullptr;
+  void ClearCanvasOverlay(int canvasIndex);  // free one canvas's overlay textures
 
   // GPU particle rendering state (GL 3.3+)
   bool m_bUseGPURenderer;

@@ -312,6 +312,12 @@ GRIBUICtrlBar::GRIBUICtrlBar(wxWindow *parent, wxWindowID id,
 }
 
 GRIBUICtrlBar::~GRIBUICtrlBar() {
+  // Free per-canvas timeline overrides (owned here).
+  for (int ci = 0; ci < 2; ci++) {
+    delete m_pTimelineSetByCanvas[ci];
+    m_pTimelineSetByCanvas[ci] = nullptr;
+  }
+
   wxFileConfig *pConf = GetOCPNConfigObject();
   ;
 
@@ -434,6 +440,9 @@ void GRIBUICtrlBar::OpenFile(bool newestFile) {
   pPlugIn->GetGRIBOverlayFactory()->ClearParticles();
   m_Altitude = 0;
   m_FileIntervalIndex = m_OverlaySettings.m_SlicesPerUpdate;
+  // Drop per-canvas time overrides before the record array is freed — their
+  // interpolated sets reference the old array, so they must not survive the load.
+  ResetCanvasTimeOverrides();
   delete m_bGRIBActiveFile;
   delete m_pTimelineSet;
   m_pTimelineSet = nullptr;
@@ -2127,9 +2136,65 @@ void GRIBUICtrlBar::SetGribTimelineRecordSet(
   delete m_pTimelineSet;
   m_pTimelineSet = pTimelineSet;
 
-  if (!pPlugIn->GetGRIBOverlayFactory()) return;
+  GRIBOverlayFactory *factory = pPlugIn->GetGRIBOverlayFactory();
+  if (!factory) return;
 
-  pPlugIn->GetGRIBOverlayFactory()->SetGribTimelineRecordSet(m_pTimelineSet);
+  // Setting the global set Reset()s the factory (drops its per-canvas timeline
+  // aliases). Re-apply any per-canvas overrides afterwards so a canvas holding
+  // its own time keeps it across global updates (e.g. playback of the other
+  // canvas). New-file loads clear the overrides first (ResetCanvasTimeOverrides),
+  // so the sets re-applied here always reference the live record array.
+  factory->SetGribTimelineRecordSet(m_pTimelineSet);
+  for (int ci = 0; ci < 2; ci++) {
+    if (m_pTimelineSetByCanvas[ci])
+      factory->SetGribTimelineRecordSet(m_pTimelineSetByCanvas[ci], ci);
+  }
+}
+
+wxDateTime GRIBUICtrlBar::TimelineTimeForCanvas(int canvasIndex) {
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  if (m_canvasTimeIndex[ci] >= 0 && m_bGRIBActiveFile) {
+    ArrayOfGribRecordSets *rsa = m_bGRIBActiveFile->GetRecordSetArrayPtr();
+    if (rsa && m_canvasTimeIndex[ci] < (int)rsa->GetCount())
+      return rsa->Item(m_canvasTimeIndex[ci]).m_Reference_Time;
+  }
+  return TimelineTime();  // no/invalid override -> follow the global timeline
+}
+
+void GRIBUICtrlBar::TimelineChangedForCanvas(int canvasIndex) {
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  GRIBOverlayFactory *factory = pPlugIn->GetGRIBOverlayFactory();
+  if (!factory) return;
+
+  // No override (or no data): this canvas follows the global timeline. Drop the
+  // owned per-canvas set and clear the factory alias (it falls back to global).
+  if (m_canvasTimeIndex[ci] < 0 || !m_bGRIBActiveFile ||
+      !m_bGRIBActiveFile->IsOK()) {
+    factory->SetGribTimelineRecordSet(nullptr, ci);
+    GribTimelineRecordSet *old = m_pTimelineSetByCanvas[ci];
+    m_pTimelineSetByCanvas[ci] = nullptr;
+    delete old;
+    return;
+  }
+
+  // Build this canvas's set at its own time. Hand the new set to the factory
+  // BEFORE deleting the old one so the factory never holds a dangling pointer.
+  GribTimelineRecordSet *newSet = GetTimeLineRecordSet(TimelineTimeForCanvas(ci));
+  GribTimelineRecordSet *old = m_pTimelineSetByCanvas[ci];
+  m_pTimelineSetByCanvas[ci] = newSet;
+  factory->SetGribTimelineRecordSet(newSet, ci);
+  delete old;
+  RequestRefresh(GetGRIBCanvas());
+}
+
+void GRIBUICtrlBar::ResetCanvasTimeOverrides() {
+  GRIBOverlayFactory *factory = pPlugIn->GetGRIBOverlayFactory();
+  for (int ci = 0; ci < 2; ci++) {
+    m_canvasTimeIndex[ci] = -1;
+    if (factory) factory->SetGribTimelineRecordSet(nullptr, ci);
+    delete m_pTimelineSetByCanvas[ci];
+    m_pTimelineSetByCanvas[ci] = nullptr;
+  }
 }
 
 void GRIBUICtrlBar::SetTimeLineMax(bool SetValue) {

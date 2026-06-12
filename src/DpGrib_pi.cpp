@@ -1182,6 +1182,36 @@ int DpGrib_pi::Internal_GetCurrentTimeIndex() const {
   return m_pGribCtrlBar->m_cRecordForecast->GetCurrentSelection();
 }
 
+int DpGrib_pi::Internal_GetCurrentTimeIndex(int canvasIndex) const {
+  if (!m_pGribCtrlBar) return -1;
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  int idx = m_pGribCtrlBar->m_canvasTimeIndex[ci];
+  // No per-canvas override -> report the global selection.
+  return (idx >= 0) ? idx : m_pGribCtrlBar->m_cRecordForecast->GetCurrentSelection();
+}
+
+bool DpGrib_pi::Internal_SetTimeIndex(int index, int canvasIndex) {
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
+    wxLogWarning("DpGrib_pi::Internal_SetTimeIndex(%d, canvas %d) - No GRIB file",
+                 index, canvasIndex);
+    return false;
+  }
+  ArrayOfGribRecordSets *rsa =
+      m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return false;
+  int count = rsa->GetCount();
+  if (index < 0 || index >= count) {
+    wxLogWarning("DpGrib_pi::Internal_SetTimeIndex(%d, canvas %d) - out of range",
+                 index, canvasIndex);
+    return false;
+  }
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  m_pGribCtrlBar->m_canvasTimeIndex[ci] = index;
+  m_pGribCtrlBar->TimelineChangedForCanvas(ci);
+  RequestRefresh(m_parent_window);
+  return true;
+}
+
 bool DpGrib_pi::Internal_SetTimeIndex(int index) {
   if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) {
     wxLogWarning("DpGrib_pi::Internal_SetTimeIndex(%d) - No GRIB file loaded", index);
@@ -1874,10 +1904,10 @@ void DpGrib_pi::Internal_SetLegendLayout(int slot, int stackCount,
 }
 
 bool DpGrib_pi::Internal_IsColorOverlayActive(int canvasIndex) {
-  // Per-canvas render-truth: this canvas must be visible AND the (shared) overlay
-  // content must actually be drawing a colored map this frame.
+  // Per-canvas render-truth: this canvas must be visible AND the overlay content
+  // (at THIS canvas's time) must actually be drawing a colored map this frame.
   return IsCanvasWeatherVisible(canvasIndex) && m_pGRIBOverlayFactory &&
-         m_pGRIBOverlayFactory->HasActiveColorOverlay();
+         m_pGRIBOverlayFactory->HasActiveColorOverlay(canvasIndex);
 }
 
 bool DpGrib_pi::Internal_IsColorOverlayActive() {

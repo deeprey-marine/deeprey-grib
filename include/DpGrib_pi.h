@@ -201,6 +201,10 @@ public:
   int Internal_GetTimeStepCount() const;
   int Internal_GetCurrentTimeIndex() const;
   bool Internal_SetTimeIndex(int index);
+  // Per-canvas time (dual-chart mode): each canvas can show a different time step
+  // from the same loaded file. -1 / fallback follows the global timeline.
+  int Internal_GetCurrentTimeIndex(int canvasIndex) const;
+  bool Internal_SetTimeIndex(int index, int canvasIndex);
   bool Internal_SetDisplayToCurrentTime();
   wxString Internal_GetCurrentTimeString() const;
   wxString Internal_GetTimeString(int index) const;

@@ -280,6 +280,15 @@ public:
   /** Current set of GRIB records for timeline playback. */
   GribTimelineRecordSet *m_pTimelineSet;
 
+  // Per-canvas time (dual-chart mode). m_canvasTimeIndex[ci] == -1 means that
+  // canvas follows the global timeline; otherwise it holds a record index and
+  // m_pTimelineSetByCanvas[ci] owns the interpolated set pushed to the factory.
+  int m_canvasTimeIndex[2] = {-1, -1};
+  GribTimelineRecordSet *m_pTimelineSetByCanvas[2] = {nullptr, nullptr};
+  void TimelineChangedForCanvas(int canvasIndex);
+  wxDateTime TimelineTimeForCanvas(int canvasIndex);
+  void ResetCanvasTimeOverrides();  // drop overrides (new file / data change)
+
   /** Timer for controlling GRIB animation playback. */
   wxTimer m_tPlayStop;
   /** Plugin instance that owns this control bar. */

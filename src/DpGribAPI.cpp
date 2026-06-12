@@ -274,6 +274,22 @@ bool DpGribAPI::SetTimeIndex(int index) {
     return false;
 }
 
+int DpGribAPI::GetCurrentTimeIndex(int canvasIndex) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)
+            ->Internal_GetCurrentTimeIndex(canvasIndex);
+    }
+    return -1;
+}
+
+bool DpGribAPI::SetTimeIndex(int index, int canvasIndex) {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)
+            ->Internal_SetTimeIndex(index, canvasIndex);
+    }
+    return false;
+}
+
 bool DpGribAPI::SetDisplayToCurrentTime() {
     if (m_plugin) {
         return static_cast<DpGrib_pi*>(m_plugin)->Internal_SetDisplayToCurrentTime();
