@@ -9,6 +9,7 @@
 
 #include "DpGribGPUParticles.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -76,7 +77,10 @@ DpGribGPUParticles::DpGribGPUParticles()
       m_frameCount(0),
       m_density(0),
       m_speedFactor(100.0f),
-      m_subSteps(4) {
+      m_subSteps(4),
+      m_effSubSteps(4),
+      m_lastStepTimeMs(-1),
+      m_timeScale(1.0f) {
   m_stateTexture[0] = m_stateTexture[1] = 0;
   m_stateFBO[0] = m_stateFBO[1] = 0;
   m_trailTexture[0] = m_trailTexture[1] = 0;
@@ -499,6 +503,8 @@ void DpGribGPUParticles::Reset() {
   m_frameCount = 0;
   m_validTrailCount = 0;
   m_trailWriteIdx = 0;
+  m_lastStepTimeMs = -1;
+  m_timeScale = 1.0f;
 }
 
 // ============================================================================
@@ -511,6 +517,25 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
                                 PlugIn_ViewPort *vp,
                                 GribRecord *pGRPeriod) {
   if (!m_initialized || !pGRX || !pGRY) return;
+
+  // Time-based stepping: advance the simulation by real elapsed time so wind
+  // speed looks the same at any achieved frame rate. The scale is realized by
+  // running MORE sub-steps per frame (see m_effSubSteps below) rather than a
+  // bigger per-step displacement, which preserves every per-step invariant:
+  // float32 precision floor, the grid-crossing cap, particle age and drop
+  // rate. Monotonic clock — the MFD's wall clock steps on GPS/NTP sync.
+  // Clamped so a long pause can't fast-forward particles (beyond ~4 nominal
+  // frames the animation falls behind real time instead of teleporting).
+  long long nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch())
+                        .count();
+  if (m_lastStepTimeMs >= 0) {
+    float scale = (float)(nowMs - m_lastStepTimeMs) / 30.0f;  // 30 ms nominal
+    m_timeScale = wxMax(0.25f, wxMin(scale, 4.0f));
+  } else {
+    m_timeScale = 1.0f;
+  }
+  m_lastStepTimeMs = nowMs;
 
   // Save GL state that Update modifies (FBO, texture bindings)
   GLint savedFBO;
@@ -552,6 +577,11 @@ void DpGribGPUParticles::Update(GribRecord *pGRX, GribRecord *pGRY,
 
   // Zoom-adaptive sub-steps: fewer when zoomed out (cheaper, still smooth)
   m_subSteps = (vp->view_scale_ppm > 5e-4) ? 4 : 2;
+
+  // Time-scaled sub-step count: keeps per-step displacement at its tuned
+  // value while the frame as a whole advances by real elapsed time.
+  m_effSubSteps = (int)lroundf(m_subSteps * m_timeScale);
+  m_effSubSteps = wxMax(1, wxMin(m_effSubSteps, 16));
 
   // Compute visible spawn bounds from viewport (approximate Mercator inverse)
   if (vp->view_scale_ppm > 0) {
@@ -694,7 +724,7 @@ void DpGribGPUParticles::Render(PlugIn_ViewPort *vp) {
     // ===== WAVE MODE: existing FBO trail pipeline (unchanged) =====
     DecayTrails(vp);
 
-    for (int step = 0; step < m_subSteps; step++) {
+    for (int step = 0; step < m_effSubSteps; step++) {
       UpdateParticleState();
       DrawParticles(vp);
     }
@@ -707,7 +737,7 @@ void DpGribGPUParticles::Render(PlugIn_ViewPort *vp) {
     CompositeToScreen(vp);
   } else {
     // ===== WIND MODE: ribbon pipeline =====
-    for (int step = 0; step < m_subSteps; step++) {
+    for (int step = 0; step < m_effSubSteps; step++) {
       UpdateParticleState();
     }
 
@@ -812,8 +842,10 @@ void DpGribGPUParticles::UpdateParticleState() {
   glUniform1f(glGetUniformLocation(prog, "uMaxAge"), maxAge);
   glUniform1f(glGetUniformLocation(prog, "uDropRate"), 0.003f);
   glUniform1f(glGetUniformLocation(prog, "uDropRateBump"), 0.01f);
+  // Total frame displacement = m_speedFactor * m_timeScale, spread over
+  // m_effSubSteps so each step stays at the tuned per-step magnitude.
   glUniform1f(glGetUniformLocation(prog, "uSpeedFactor"),
-              m_speedFactor / (float)m_subSteps);
+              m_speedFactor * m_timeScale / (float)m_effSubSteps);
   glUniform1f(glGetUniformLocation(prog, "uRandomSeed"),
               (float)(m_frameCount % 10000) * 0.001f);
 
@@ -842,7 +874,9 @@ void DpGribGPUParticles::DecayTrails(PlugIn_ViewPort *vp) {
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, m_trailTexture[m_trailIndex]);
   glUniform1i(glGetUniformLocation(decayProg, "uTrailTex"), 0);
-  float decay = m_waveMode ? 0.92f : 0.96f;
+  // Per-frame decay raised to the time scale keeps the trail fade rate
+  // constant in wall time regardless of the achieved frame rate.
+  float decay = powf(m_waveMode ? 0.92f : 0.96f, m_timeScale);
   glUniform1f(glGetUniformLocation(decayProg, "uDecay"), decay);
 
   // Compute pan offset for smooth trail shifting

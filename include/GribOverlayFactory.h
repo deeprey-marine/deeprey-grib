@@ -443,6 +443,11 @@ private:
   wxTimer m_tParticleTimer;
   wxTimer m_gpuAnimTimer;  // dedicated timer for GPU particle animation
   bool m_bUpdateParticles;
+  // Target wall-time per GPU animation frame (config key GPUAnimTargetMs,
+  // ms) and the monotonic-ms stamp of the last timer-driven refresh (-1 =
+  // none); see ScheduleGPUParticleRefresh for the scheduling policy.
+  int m_gpuAnimTargetMs;
+  long long m_gpuRefreshStampMs;
 
   LineBuffer m_WindArrowCache[14];
   LineBuffer m_SingleArrow[2], m_DoubleArrow[2];

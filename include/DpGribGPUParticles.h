@@ -124,6 +124,14 @@ private:
   float m_density;
   float m_speedFactor;  // zoom-adaptive, computed from view_scale_ppm
   int m_subSteps;       // zoom-adaptive: 4 zoomed in, 2 zoomed out
+
+  // Time-based stepping: monotonic-clock ms of the previous simulation
+  // advance, the elapsed-time scale relative to the 30 ms nominal frame the
+  // factors were tuned at, and the resulting sub-step count for this frame
+  // (m_subSteps scaled by m_timeScale, so per-step displacement is constant).
+  long long m_lastStepTimeMs;
+  float m_timeScale;
+  int m_effSubSteps;
 };
 
 #endif  // __DPGRIBGPUPARTICLES_H__

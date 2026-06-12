@@ -26,6 +26,10 @@
 #include "wx/wx.h"
 #endif  // precompiled headers
 
+#include <wx/fileconf.h>
+
+#include <chrono>
+
 #include "pi_gl.h"
 
 #include <wx/glcanvas.h>
@@ -252,6 +256,19 @@ GRIBOverlayFactory::GRIBOverlayFactory(GRIBUICtrlBar &dlg)
       wxEVT_TIMER, wxTimerEventHandler(GRIBOverlayFactory::OnGPUAnimTimer),
       nullptr, this);
   m_bUpdateParticles = false;
+
+  // Config-file-only knob, read once at startup (restart to change). Particle
+  // speed is time-based, so this affects smoothness/CPU only, not wind speed.
+  m_gpuRefreshStampMs = -1;
+  long target = 100;  // ~10 fps animation
+  wxFileConfig *pConf = GetOCPNConfigObject();
+  if (pConf) {
+    wxString oldPath = pConf->GetPath();
+    pConf->SetPath(_T("/PlugIns/GRIB"));
+    pConf->Read(_T("GPUAnimTargetMs"), &target, target);
+    pConf->SetPath(oldPath);
+  }
+  m_gpuAnimTargetMs = (int)wxMax(33L, wxMin(target, 500L));
 
   // Generate the wind arrow cache
 
@@ -2770,6 +2787,8 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
 
   //  Try to run at 20 fps,
   //  But also arrange not to consume more than 33% CPU(core) duty cycle
+  //  (Upstream-parity scheduling: unlike the GPU path, CPU particle speed is
+  //  still per-frame, so this interval also sets the animation speed.)
   m_tParticleTimer.Start(wxMax(50 - time, 2 * time), wxTIMER_ONE_SHOT);
 
 #if 0
@@ -2783,14 +2802,37 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
 #endif
 }
 
-void GRIBOverlayFactory::OnParticleTimer(wxTimerEvent &event) {
-  m_bUpdateParticles = true;
+// Monotonic milliseconds — the MFD's wall clock steps on GPS/NTP sync, so
+// wxGetUTCTimeMillis is not safe for measuring intervals here.
+static long long MonotonicMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
 
+// True when the top-level OpenCPN window is iconized — nothing can be seen,
+// so animating particles is pure waste.
+static bool IsFrameIconized() {
+  wxWindow *primary = GetOCPNCanvasWindow();
+  if (!primary) return false;
+  wxTopLevelWindow *top =
+      wxDynamicCast(wxGetTopLevelParent(primary), wxTopLevelWindow);
+  return top && top->IsIconized();
+}
+
+void GRIBOverlayFactory::OnParticleTimer(wxTimerEvent &event) {
   // If multicanvas are active, render the overlay on the right canvas only
-  if (GetCanvasCount() > 1)
-    GetCanvasByIndex(1)->Refresh(false);
-  else
-    GetOCPNCanvasWindow()->Refresh(false);
+  wxWindow *target = GetCanvasCount() > 1 ? GetCanvasByIndex(1)
+                                          : GetOCPNCanvasWindow();
+  if (IsFrameIconized() || !target || !target->IsShownOnScreen()) {
+    // Park the animation; re-check at a slow heartbeat. Don't advance the
+    // particle simulation while it can't be seen. Any normal repaint also
+    // restarts the loop through RenderGribParticles' timer re-arm.
+    m_tParticleTimer.Start(1000, wxTIMER_ONE_SHOT);
+    return;
+  }
+  m_bUpdateParticles = true;
+  target->Refresh(false);
 }
 
 void GRIBOverlayFactory::DrawProjectedPosition(int x, int y) {
@@ -3305,15 +3347,45 @@ void GRIBOverlayFactory::InitGPURenderer() {
   }
 }
 
-// Dedicated GPU particle animation timer — radar-style self-scheduling
+// Dedicated GPU particle animation timer — self-clocked to the target wall
+// time per animation frame (m_gpuAnimTargetMs). The first render after a
+// timer-driven refresh measures the redraw latency via m_gpuRefreshStampMs
+// (consumed on use): the next interval subtracts that latency so the achieved
+// period tracks the target, but never idles less than the redraw took, which
+// caps animation redraws at ~50% duty on slow machines. Renders the timer
+// didn't trigger (pan, position updates, the second canvas of a multi-canvas
+// paint) find no stamp and only re-arm the timer if it isn't already pending.
+// Particle speed itself is time-based, so the achieved frame rate only
+// affects smoothness, never motion speed.
 void GRIBOverlayFactory::ScheduleGPUParticleRefresh() {
-  m_gpuAnimTimer.StartOnce(30);
+  long target = m_gpuAnimTargetMs;
+  if (m_gpuRefreshStampMs >= 0) {
+    long long since = MonotonicMs() - m_gpuRefreshStampMs;
+    m_gpuRefreshStampMs = -1;
+    long cycle = (long)wxMax(0LL, wxMin(since, (long long)(5 * target)));
+    m_gpuAnimTimer.StartOnce(wxMax(target - cycle, cycle));
+  } else if (!m_gpuAnimTimer.IsRunning()) {
+    m_gpuAnimTimer.StartOnce(target);
+  }
 }
 
 void GRIBOverlayFactory::OnGPUAnimTimer(wxTimerEvent &event) {
-  for (int i = 0; i < GetCanvasCount(); i++) {
-    wxWindow *canvas = GetCanvasByIndex(i);
-    if (canvas) canvas->Refresh(false);
+  int refreshed = 0;
+  if (!IsFrameIconized()) {
+    for (int i = 0; i < GetCanvasCount(); i++) {
+      wxWindow *canvas = GetCanvasByIndex(i);
+      if (canvas && canvas->IsShownOnScreen()) {
+        canvas->Refresh(false);
+        refreshed++;
+      }
+    }
+  }
+  if (refreshed > 0) {
+    m_gpuRefreshStampMs = MonotonicMs();
+  } else {
+    // Nothing visible to animate: park at a slow heartbeat so the loop can
+    // never die — it resumes via the next render or the next heartbeat.
+    m_gpuAnimTimer.StartOnce(1000);
   }
 }
 
