@@ -199,6 +199,10 @@ public:
   bool RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp, int canvasIndex = 0);
   bool RenderGLGribOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                            int canvasIndex = 0);
+  // Draws only the screen-space colour legend. Called in a separate, higher
+  // priority pass (OVERLAY_OVER_UI) so the legend sits on top of chart graphics.
+  bool RenderGLColorLegend(wxGLContext *pcontext, PlugIn_ViewPort *vp,
+                           int canvasIndex = 0);
 
   void Reset();
   void ClearCachedData(void);

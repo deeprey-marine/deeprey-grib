@@ -71,7 +71,7 @@ bool g_bpause;
 //
 //---------------------------------------------------------------------------------------------------------
 
-DpGrib_pi::DpGrib_pi(void *ppimgr) : opencpn_plugin_116(ppimgr) {
+DpGrib_pi::DpGrib_pi(void *ppimgr) : opencpn_plugin_118(ppimgr) {
   // Create the PlugIn icons
   initialize_images();
 
@@ -518,6 +518,17 @@ void DpGrib_pi::OnToolbarToolCallback(int id) {
   // Toggle GRIB overlay display
   m_bShowGrib = !m_bShowGrib;
 
+  // Keep per-canvas render gates in sync with the master toggle. Per-canvas
+  // Internal_SetVisible() sets m_canvasVisible[] BEFORE calling this, so when the
+  // master turns ON with intent already recorded we must NOT clobber it; only
+  // default to "all canvases" when this was a bare master toggle (e.g. toolbar).
+  if (m_bShowGrib) {
+    if (!m_canvasVisible[0] && !m_canvasVisible[1])
+      m_canvasVisible[0] = m_canvasVisible[1] = true;
+  } else {
+    m_canvasVisible[0] = m_canvasVisible[1] = false;
+  }
+
   //    Toggle dialog? (Removed for headless mode - no dialog shown)
   if (m_bShowGrib) {
     // A new file could have been added since grib plugin opened
@@ -603,7 +614,7 @@ void DpGrib_pi::OnGribCtrlBarClose() {
 bool DpGrib_pi::RenderOverlay(wxDC &dc, PlugIn_ViewPort *vp) { return false; }
 
 bool DpGrib_pi::DoRenderOverlay(wxDC &dc, PlugIn_ViewPort *vp, int canvasIndex) {
-  if (!m_bShowGrib) return true;
+  if (!IsCanvasWeatherVisible(canvasIndex)) return true;
 
   if (!m_pGribCtrlBar || !m_pGRIBOverlayFactory)
     return false;
@@ -631,7 +642,7 @@ bool DpGrib_pi::RenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp) {
 
 bool DpGrib_pi::DoRenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                                 int canvasIndex) {
-  if (!m_bShowGrib) return true;
+  if (!IsCanvasWeatherVisible(canvasIndex)) return true;
 
   if (!m_pGribCtrlBar || !m_pGRIBOverlayFactory)
     return false;
@@ -659,9 +670,30 @@ bool DpGrib_pi::DoRenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
   return true;
 }
 
+bool DpGrib_pi::DoRenderGLLegend(wxGLContext *pcontext, PlugIn_ViewPort *vp,
+                                 int canvasIndex) {
+  if (!IsCanvasWeatherVisible(canvasIndex)) return true;
+
+  if (!m_pGribCtrlBar || !m_pGRIBOverlayFactory) return false;
+
+  return m_pGRIBOverlayFactory->RenderGLColorLegend(pcontext, vp, canvasIndex);
+}
+
 bool DpGrib_pi::RenderGLOverlayMultiCanvas(wxGLContext *pcontext,
-                                         PlugIn_ViewPort *vp, int canvasIndex) {
-  return DoRenderGLOverlay(pcontext, vp, canvasIndex);
+                                         PlugIn_ViewPort *vp, int canvasIndex,
+                                         int priority) {
+  // The weather data (overlay map, arrows, isobars, particles) draws with the
+  // charts at the legacy priority. The screen-space colour legend draws at
+  // OVERLAY_OVER_UI so it sits on top of chart graphics (light sectors, etc.)
+  // and lines up with deepview's depth legend, which it stacks beneath in the
+  // same top-left panel.
+  if (priority == OVERLAY_OVER_UI) return DoRenderGLLegend(pcontext, vp, canvasIndex);
+  if (priority == OVERLAY_LEGACY) return DoRenderGLOverlay(pcontext, vp, canvasIndex);
+  if (priority < 0) {  // legacy single-pass fallback: data then legend on top
+    DoRenderGLOverlay(pcontext, vp, canvasIndex);
+    return DoRenderGLLegend(pcontext, vp, canvasIndex);
+  }
+  return false;
 }
 
 bool DpGrib_pi::RenderOverlayMultiCanvas(wxDC &dc, PlugIn_ViewPort *vp,
@@ -969,14 +1001,17 @@ void DpGrib_pi::SetPositionFixEx(PlugIn_Position_Fix_Ex &pfix) {
 
 // Internal methods for API access
 void DpGrib_pi::Internal_SetVisible(bool visible) {
-  // Only act if the desired state differs from current state
+  // Global toggle: applies to BOTH canvases.
+  m_canvasVisible[0] = m_canvasVisible[1] = visible;
+
+  // Only act if the desired master state differs from current state
   if (visible == m_bShowGrib) {
     return;  // Already in desired state
   }
-  
+
   // Reuse the existing toolbar callback which handles all the UI logic
   OnToolbarToolCallback(0);
-  
+
   // Notify API callbacks that visibility changed
   if (m_gribAPI) {
     m_gribAPI->NotifyStateChanged();
@@ -985,6 +1020,32 @@ void DpGrib_pi::Internal_SetVisible(bool visible) {
 
 bool DpGrib_pi::Internal_IsVisible() const {
   return m_bShowGrib;
+}
+
+bool DpGrib_pi::IsCanvasWeatherVisible(int canvasIndex) const {
+  const int i = (canvasIndex == 1) ? 1 : 0;
+  return m_bShowGrib && m_canvasVisible[i];
+}
+
+void DpGrib_pi::Internal_SetVisible(bool visible, int canvasIndex) {
+  const int i = (canvasIndex == 1) ? 1 : 0;
+  m_canvasVisible[i] = visible;
+
+  // Master gate follows "any canvas wants weather": toggling it loads/unloads the
+  // GRIB data + dialog (OnToolbarToolCallback flips m_bShowGrib and, because the
+  // per-canvas intent above is already set, won't override it).
+  const bool anyVisible = m_canvasVisible[0] || m_canvasVisible[1];
+  if (anyVisible != m_bShowGrib) {
+    OnToolbarToolCallback(0);
+  }
+
+  if (m_gribAPI) {
+    m_gribAPI->NotifyStateChanged();
+  }
+}
+
+bool DpGrib_pi::Internal_IsVisible(int canvasIndex) const {
+  return IsCanvasWeatherVisible(canvasIndex);
 }
 
 void DpGrib_pi::Internal_StartWorldDownload(double latMin, double lonMin,
@@ -1802,6 +1863,21 @@ void DpGrib_pi::Internal_SetLegendLayout(int slot, int stackCount,
   if (m_pGRIBOverlayFactory) {
     m_pGRIBOverlayFactory->SetLegendLayout(slot, stackCount, drawInfoRow);
   }
+}
+
+void DpGrib_pi::Internal_SetLegendLayout(int slot, int stackCount,
+                                        bool drawInfoRow, int canvasIndex) {
+  // Phase A1: weather content is shared across canvases, so the legend layout is
+  // the same; forward to the global setter. (Per-canvas legend slots land with
+  // the per-canvas layer/timeline work.)
+  Internal_SetLegendLayout(slot, stackCount, drawInfoRow);
+}
+
+bool DpGrib_pi::Internal_IsColorOverlayActive(int canvasIndex) {
+  // Per-canvas render-truth: this canvas must be visible AND the (shared) overlay
+  // content must actually be drawing a colored map this frame.
+  return IsCanvasWeatherVisible(canvasIndex) && m_pGRIBOverlayFactory &&
+         m_pGRIBOverlayFactory->HasActiveColorOverlay();
 }
 
 bool DpGrib_pi::Internal_IsColorOverlayActive() {

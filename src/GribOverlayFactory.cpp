@@ -483,6 +483,24 @@ bool GRIBOverlayFactory::RenderGLGribOverlay(wxGLContext *pcontext,
   return rv;
 }
 
+bool GRIBOverlayFactory::RenderGLColorLegend(wxGLContext *pcontext,
+                                             PlugIn_ViewPort *vp,
+                                             int canvasIndex) {
+#if defined(ocpnUSE_GL) && !defined(USE_ANDROID_GLES2)
+  if (g_bpause) return false;
+  if (!m_pGribTimelineRecordSet) return false;
+
+  m_pdc = nullptr;  // GL render path; RenderColorLegend is GL-only.
+  RenderColorLegend(vp);
+  return true;
+#else
+  (void)pcontext;
+  (void)vp;
+  (void)canvasIndex;
+  return false;
+#endif
+}
+
 bool GRIBOverlayFactory::RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp,
                                            int canvasIndex) {
   if (!m_oDC || m_oDC->UsesGL()) {
@@ -688,9 +706,9 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp,
     }
   }
 
-#ifdef ocpnUSE_GL
-  if (!m_pdc) RenderColorLegend(vp);  // screen-space legend, on top, GL only
-#endif
+  // The colour legend is drawn separately, in a dedicated OVERLAY_OVER_UI pass
+  // (RenderGLColorLegend), so it lands on top of the chart's light graphics
+  // instead of underneath them. See DpGrib_pi::RenderGLOverlayMultiCanvas.
   return true;
 }
 
@@ -898,6 +916,13 @@ void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
   // widget guards its own attribute state.
   glUseProgram(0);
   glActiveTexture(GL_TEXTURE0);  // GRIB shaders may leave a different unit active
+
+  // Depth testing must be off: this is a 2D screen-space overlay drawn last, but
+  // a prior pass (e.g. deepview's 3D bathymetry) may leave GL_DEPTH_TEST enabled
+  // with near depth values that would otherwise occlude the legend.
+  const GLboolean wasDepthTest = glIsEnabled(GL_DEPTH_TEST);
+  glDisable(GL_DEPTH_TEST);
+
   glMatrixMode(GL_PROJECTION);
   glPushMatrix();
   glLoadIdentity();
@@ -915,6 +940,8 @@ void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
   glMatrixMode(GL_PROJECTION);
   glPopMatrix();
   glMatrixMode(GL_MODELVIEW);
+
+  if (wasDepthTest) glEnable(GL_DEPTH_TEST);
 #else
   (void)vp;
 #endif

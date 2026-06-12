@@ -81,6 +81,19 @@ bool DpGribAPI::IsVisible() const {
     return false;
 }
 
+void DpGribAPI::SetVisible(bool visible, int canvasIndex) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetVisible(visible, canvasIndex);
+    }
+}
+
+bool DpGribAPI::IsVisible(int canvasIndex) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsVisible(canvasIndex);
+    }
+    return false;
+}
+
 void DpGribAPI::SetOverlayTransparency(int transparency) {
     if (m_plugin) {
         static_cast<DpGrib_pi*>(m_plugin)->Internal_SetOverlayTransparency(transparency);
@@ -559,9 +572,25 @@ void DpGribAPI::SetLegendLayout(int slot, int stackCount, bool drawInfoRow) {
     }
 }
 
+void DpGribAPI::SetLegendLayout(int slot, int stackCount, bool drawInfoRow,
+                                int canvasIndex) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetLegendLayout(
+            slot, stackCount, drawInfoRow, canvasIndex);
+    }
+}
+
 bool DpGribAPI::IsColorOverlayActive() {
     if (m_plugin) {
         return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsColorOverlayActive();
+    }
+    return false;
+}
+
+bool DpGribAPI::IsColorOverlayActive(int canvasIndex) {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)
+            ->Internal_IsColorOverlayActive(canvasIndex);
     }
     return false;
 }
