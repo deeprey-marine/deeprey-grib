@@ -460,6 +460,12 @@ void GRIBOverlayFactory::SelectCanvasContext(int canvasIndex) {
   // render path reads (m_dlg.m_bDataPlot / m_Settings.Settings), so two canvases
   // can show different layers/formats without touching the 60+ render reads.
   m_dlg.ActivateCanvasLayers(ci);
+  // Load this canvas's legend stacking slot into the active working copy that
+  // RenderColorLegend reads — otherwise both canvases share one slot and the
+  // weather bar lands on top of the depth bar on whichever rendered second.
+  m_legendSlot = m_legendSlotByCanvas[ci];
+  m_legendStackCount = m_legendStackCountByCanvas[ci];
+  m_legendDrawInfoRow = m_legendDrawInfoRowByCanvas[ci];
 }
 
 void GRIBOverlayFactory::ClearCanvasOverlay(int canvasIndex) {

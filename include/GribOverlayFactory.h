@@ -235,10 +235,34 @@ public:
 
   // Position the color legend for vertical stacking (set by deeprey-gui). See
   // DpGribAPI::SetLegendLayout. Defaults reproduce the standalone single bar.
+  // Global form (single-canvas / standalone): apply to both canvases so either
+  // render path reads the same layout.
   void SetLegendLayout(int slot, int stackCount, bool drawInfoRow) {
+    for (int c = 0; c < 2; ++c) {
+      m_legendSlotByCanvas[c] = slot;
+      m_legendStackCountByCanvas[c] = stackCount;
+      m_legendDrawInfoRowByCanvas[c] = drawInfoRow;
+    }
     m_legendSlot = slot;
     m_legendStackCount = stackCount;
     m_legendDrawInfoRow = drawInfoRow;
+  }
+
+  // Per-canvas form (dual-chart mode): each canvas keeps its own legend slot so
+  // canvas 0's weather bar can stack below depth while canvas 1's stacks
+  // differently. SelectCanvasContext() copies the chosen canvas's slot into the
+  // active working copy the render path reads.
+  void SetLegendLayout(int slot, int stackCount, bool drawInfoRow,
+                       int canvasIndex) {
+    const int ci = (canvasIndex == 1) ? 1 : 0;
+    m_legendSlotByCanvas[ci] = slot;
+    m_legendStackCountByCanvas[ci] = stackCount;
+    m_legendDrawInfoRowByCanvas[ci] = drawInfoRow;
+    if (ci == m_activeCanvas) {  // keep active copy live for an immediate render
+      m_legendSlot = slot;
+      m_legendStackCount = stackCount;
+      m_legendDrawInfoRow = drawInfoRow;
+    }
   }
 
   // True iff a colored overlay legend would actually be drawn this frame (same
@@ -383,9 +407,15 @@ private:
 
   // Vertical stacking, assigned by deeprey-gui via SetLegendLayout. Defaults give
   // the standalone single-bar layout (slot 0, alone, owns the shared info row).
+  // The non-suffixed members are the ACTIVE working copy the render path reads;
+  // SelectCanvasContext() loads them from the per-canvas arrays so each canvas
+  // stacks independently in dual-chart mode.
   int m_legendSlot = 0;
   int m_legendStackCount = 1;
   bool m_legendDrawInfoRow = true;
+  int m_legendSlotByCanvas[2] = {0, 0};
+  int m_legendStackCountByCanvas[2] = {1, 1};
+  bool m_legendDrawInfoRowByCanvas[2] = {true, true};
 
   void drawDoubleArrow(int x, int y, double ang, wxColour arrowColor,
                        int arrowWidth, int arrowSizeIdx, double scale);

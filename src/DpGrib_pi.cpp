@@ -1941,10 +1941,13 @@ void DpGrib_pi::Internal_SetLegendLayout(int slot, int stackCount,
 
 void DpGrib_pi::Internal_SetLegendLayout(int slot, int stackCount,
                                         bool drawInfoRow, int canvasIndex) {
-  // Phase A1: weather content is shared across canvases, so the legend layout is
-  // the same; forward to the global setter. (Per-canvas legend slots land with
-  // the per-canvas layer/timeline work.)
-  Internal_SetLegendLayout(slot, stackCount, drawInfoRow);
+  // Per-canvas legend slot: each chart canvas stacks its weather bar
+  // independently (canvas 0 may stack below depth while canvas 1 differs).
+  // SelectCanvasContext loads the chosen canvas's slot before RenderColorLegend.
+  if (m_pGRIBOverlayFactory) {
+    m_pGRIBOverlayFactory->SetLegendLayout(slot, stackCount, drawInfoRow,
+                                           canvasIndex);
+  }
 }
 
 bool DpGrib_pi::Internal_IsColorOverlayActive(int canvasIndex) {
