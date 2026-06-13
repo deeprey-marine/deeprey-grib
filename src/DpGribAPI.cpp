@@ -376,6 +376,12 @@ int DpGribAPI::GetGlobalSymbolSpacing() const {
 // Layer / Data Field Management
 // =============================================================================
 
+void DpGribAPI::SetActiveLayerCanvas(int canvasIndex) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetActiveLayerCanvas(canvasIndex);
+    }
+}
+
 bool DpGribAPI::SetLayerVisible(int layerId, bool visible) {
     if (m_plugin) {
         return static_cast<DpGrib_pi*>(m_plugin)->Internal_SetLayerVisible(layerId, visible);

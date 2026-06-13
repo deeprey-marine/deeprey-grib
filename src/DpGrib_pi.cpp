@@ -1371,16 +1371,20 @@ int DpGrib_pi::Internal_GetOverlayTransparency() const {
 //----------------------------------------------------------------------------------------------------------
 //          Layer Management Implementation
 //----------------------------------------------------------------------------------------------------------
+void DpGrib_pi::Internal_SetActiveLayerCanvas(int canvasIndex) {
+  m_layerControlCanvas = (canvasIndex == 1) ? 1 : 0;
+}
+
 bool DpGrib_pi::Internal_SetLayerVisible(int layerId, bool visible) {
   if (!m_pGribCtrlBar) {
     return false;
   }
-  
+
   if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
     return false;
   }
-  
-  m_pGribCtrlBar->m_bDataPlot[layerId] = visible;
+
+  m_pGribCtrlBar->CanvasDataPlot(m_layerControlCanvas, layerId) = visible;
   RequestRefresh(m_parent_window);
   return true;
 }
@@ -1389,12 +1393,12 @@ bool DpGrib_pi::Internal_IsLayerVisible(int layerId) const {
   if (!m_pGribCtrlBar) {
     return false;
   }
-  
+
   if (layerId < 0 || layerId >= GribOverlaySettings::SETTINGS_COUNT) {
     return false;
   }
-  
-  return m_pGribCtrlBar->m_bDataPlot[layerId];
+
+  return m_pGribCtrlBar->CanvasDataPlot(m_layerControlCanvas, layerId);
 }
 
 bool DpGrib_pi::Internal_IsLayerAvailable(int layerId) const {
@@ -1587,6 +1591,7 @@ void DpGrib_pi::Internal_SetBarbedArrowsVisible(int layerId, bool visible) {
     return;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bBarbedArrows = visible;
     if (m_pGribCtrlBar->m_gCursorData) {
@@ -1594,6 +1599,9 @@ void DpGrib_pi::Internal_SetBarbedArrowsVisible(int layerId, bool visible) {
   }
   // Persist the change
   settings.Write();
+
+  // Capture this canvas's (conflict-adjusted) per-layer state.
+  m_pGribCtrlBar->CaptureCanvasLayers(m_layerControlCanvas);
 
   // Clear cache and request refresh
   m_pGribCtrlBar->SetFactoryOptions();
@@ -1610,6 +1618,7 @@ void DpGrib_pi::Internal_SetIsoBarsVisible(int layerId, bool visible) {
     return;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bIsoBars = visible;
   if (m_pGribCtrlBar->m_gCursorData) {
@@ -1617,6 +1626,9 @@ void DpGrib_pi::Internal_SetIsoBarsVisible(int layerId, bool visible) {
   }
   // Persist the change
   settings.Write();
+
+  // Capture this canvas's (conflict-adjusted) per-layer state.
+  m_pGribCtrlBar->CaptureCanvasLayers(m_layerControlCanvas);
 
   // Clear cache and request refresh
   m_pGribCtrlBar->SetFactoryOptions();
@@ -1633,6 +1645,7 @@ void DpGrib_pi::Internal_SetNumbersVisible(int layerId, bool visible) {
     return;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bNumbers = visible;
   if (m_pGribCtrlBar->m_gCursorData) {
@@ -1640,6 +1653,9 @@ void DpGrib_pi::Internal_SetNumbersVisible(int layerId, bool visible) {
   }
   // Persist the change
   settings.Write();
+
+  // Capture this canvas's (conflict-adjusted) per-layer state.
+  m_pGribCtrlBar->CaptureCanvasLayers(m_layerControlCanvas);
 
   // Clear cache and request refresh
   m_pGribCtrlBar->SetFactoryOptions();
@@ -1656,6 +1672,7 @@ void DpGrib_pi::Internal_SetOverlayMapVisible(int layerId, bool visible) {
     return;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bOverlayMap = visible;
   if (m_pGribCtrlBar->m_gCursorData) {
@@ -1663,6 +1680,9 @@ void DpGrib_pi::Internal_SetOverlayMapVisible(int layerId, bool visible) {
   }
   // Persist the change
   settings.Write();
+
+  // Capture this canvas's (conflict-adjusted) per-layer state.
+  m_pGribCtrlBar->CaptureCanvasLayers(m_layerControlCanvas);
 
   // Clear cache and request refresh
   m_pGribCtrlBar->SetFactoryOptions();
@@ -1679,6 +1699,7 @@ void DpGrib_pi::Internal_SetDirectionArrowsVisible(int layerId, bool visible) {
     return;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bDirectionArrows = visible;
   if (m_pGribCtrlBar->m_gCursorData) {
@@ -1686,6 +1707,9 @@ void DpGrib_pi::Internal_SetDirectionArrowsVisible(int layerId, bool visible) {
   }
   // Persist the change
   settings.Write();
+
+  // Capture this canvas's (conflict-adjusted) per-layer state.
+  m_pGribCtrlBar->CaptureCanvasLayers(m_layerControlCanvas);
 
   // Clear cache and request refresh
   m_pGribCtrlBar->SetFactoryOptions();
@@ -1702,6 +1726,7 @@ void DpGrib_pi::Internal_SetParticlesVisible(int layerId, bool visible) {
     return;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bParticles = visible;
   if (m_pGribCtrlBar->m_gCursorData) {
@@ -1709,6 +1734,9 @@ void DpGrib_pi::Internal_SetParticlesVisible(int layerId, bool visible) {
   }
   // Persist the change
   settings.Write();
+
+  // Capture this canvas's (conflict-adjusted) per-layer state.
+  m_pGribCtrlBar->CaptureCanvasLayers(m_layerControlCanvas);
 
   // Clear cache and request refresh
   m_pGribCtrlBar->SetFactoryOptions();
@@ -1729,6 +1757,7 @@ bool DpGrib_pi::Internal_IsBarbedArrowsVisible(int layerId) const {
     return false;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   return settings.Settings[layerId].m_bBarbedArrows;
 }
@@ -1744,6 +1773,7 @@ bool DpGrib_pi::Internal_IsIsoBarsVisible(int layerId) const {
     return false;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   return settings.Settings[layerId].m_bIsoBars;
 }
@@ -1759,6 +1789,7 @@ bool DpGrib_pi::Internal_AreNumbersVisible(int layerId) const {
     return false;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   return settings.Settings[layerId].m_bNumbers;
 }
@@ -1774,6 +1805,7 @@ bool DpGrib_pi::Internal_IsOverlayMapVisible(int layerId) const {
     return false;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   return settings.Settings[layerId].m_bOverlayMap;
 }
@@ -1789,6 +1821,7 @@ bool DpGrib_pi::Internal_AreDirectionArrowsVisible(int layerId) const {
     return false;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   return settings.Settings[layerId].m_bDirectionArrows;
 }
@@ -1804,6 +1837,7 @@ bool DpGrib_pi::Internal_AreParticlesVisible(int layerId) const {
     return false;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   return settings.Settings[layerId].m_bParticles;
 }
@@ -1823,11 +1857,15 @@ void DpGrib_pi::Internal_SetIsoBarVisibility(int layerId, bool visible) {
     return;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_iIsoBarVisibility = visible;
 
   // Persist the change
   settings.Write();
+
+  // Capture this canvas's (conflict-adjusted) per-layer state.
+  m_pGribCtrlBar->CaptureCanvasLayers(m_layerControlCanvas);
 
   // Clear cache and request refresh
   m_pGribCtrlBar->SetFactoryOptions();
@@ -1844,6 +1882,7 @@ bool DpGrib_pi::Internal_GetIsoBarVisibility(int layerId) const {
     return false;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   return settings.Settings[layerId].m_iIsoBarVisibility;
 }
@@ -1859,11 +1898,15 @@ void DpGrib_pi::Internal_SetAbbreviatedNumbers(int layerId, bool abbreviated) {
     return;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bAbbrIsoBarsNumbers = abbreviated;
 
   // Persist the change
   settings.Write();
+
+  // Capture this canvas's (conflict-adjusted) per-layer state.
+  m_pGribCtrlBar->CaptureCanvasLayers(m_layerControlCanvas);
 
   // Clear cache and request refresh
   m_pGribCtrlBar->SetFactoryOptions();
@@ -1880,6 +1923,7 @@ bool DpGrib_pi::Internal_AreNumbersAbbreviated(int layerId) const {
     return false;
   }
 
+  m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   const GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   return settings.Settings[layerId].m_bAbbrIsoBarsNumbers;
 }

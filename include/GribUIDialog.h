@@ -289,6 +289,24 @@ public:
   wxDateTime TimelineTimeForCanvas(int canvasIndex);
   void ResetCanvasTimeOverrides();  // drop overrides (new file / data change)
 
+  // Per-canvas layers + per-layer format flags (dual-chart mode). Each canvas has
+  // its own copy of m_bDataPlot[] AND m_OverlaySettings.Settings[]. The factory's
+  // SelectCanvasContext() copies the active canvas's copy into the shared
+  // m_bDataPlot / m_OverlaySettings.Settings (read in the render path) via
+  // ActivateCanvasLayers(), so the render code is unchanged. The API layer/format
+  // setters activate the control canvas, mutate the shared slot (so the existing
+  // conflict-resolution/persist side-effects run), then CaptureCanvasLayers()
+  // stores the result back into that canvas's copy.
+  bool m_dataPlotByCanvas[2][GribOverlaySettings::GEO_ALTITUDE];
+  GribOverlaySettings::OverlayDataSettings
+      m_layerSettingsByCanvas[2][GribOverlaySettings::SETTINGS_COUNT];
+  bool m_canvasLayersInitialized = false;
+  void InitCanvasLayersFromGlobal();  // seed both copies from the global state
+  void ActivateCanvasLayers(int canvasIndex);  // copy a canvas's copy -> shared
+  void CaptureCanvasLayers(int canvasIndex);    // copy shared -> a canvas's copy
+  // Init-safe per-canvas layer-enable accessor used by the plugin API.
+  bool &CanvasDataPlot(int canvasIndex, int layerId);
+
   /** Timer for controlling GRIB animation playback. */
   wxTimer m_tPlayStop;
   /** Plugin instance that owns this control bar. */

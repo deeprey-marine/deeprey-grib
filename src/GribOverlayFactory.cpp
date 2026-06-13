@@ -456,6 +456,10 @@ void GRIBOverlayFactory::SelectCanvasContext(int canvasIndex) {
   m_pOverlay = m_overlayByCanvas[ci];
   m_pGribTimelineRecordSet =
       m_timelineByCanvas[ci] ? m_timelineByCanvas[ci] : m_timelineGlobal;
+  // Copy this canvas's layer + per-layer format flags into the shared slots the
+  // render path reads (m_dlg.m_bDataPlot / m_Settings.Settings), so two canvases
+  // can show different layers/formats without touching the 60+ render reads.
+  m_dlg.ActivateCanvasLayers(ci);
 }
 
 void GRIBOverlayFactory::ClearCanvasOverlay(int canvasIndex) {

@@ -211,6 +211,12 @@ public:
   wxString Internal_GetCurrentTimeStringLocal() const;
   wxString Internal_GetTimeStringLocal(int index) const;
   
+  // Per-canvas layer control (dual-chart mode): deeprey-gui calls
+  // SetActiveLayerCanvas(canvasIndex) before issuing/reading layer + format
+  // state, so the layer/format setters/getters below operate on that canvas's
+  // copy (kept in GRIBUICtrlBar) instead of one global set.
+  void Internal_SetActiveLayerCanvas(int canvasIndex);
+
   // Layer management
   bool Internal_SetLayerVisible(int layerId, bool visible);
   bool Internal_IsLayerVisible(int layerId) const;
@@ -334,6 +340,8 @@ private:
   // Per-canvas render gate (dual-chart mode). Default true so single-canvas and
   // legacy behavior is unchanged (master m_bShowGrib drives data load/unload).
   bool m_canvasVisible[2] = {true, true};
+  // Which canvas the layer/format API setters/getters target (set by the GUI).
+  int m_layerControlCanvas = 0;
   /**
    * Stores current viewport.
    *

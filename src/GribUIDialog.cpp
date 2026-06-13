@@ -2187,6 +2187,42 @@ void GRIBUICtrlBar::TimelineChangedForCanvas(int canvasIndex) {
   RequestRefresh(GetGRIBCanvas());
 }
 
+void GRIBUICtrlBar::InitCanvasLayersFromGlobal() {
+  for (int ci = 0; ci < 2; ci++) {
+    for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
+      m_dataPlotByCanvas[ci][i] = m_bDataPlot[i];
+    for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++)
+      m_layerSettingsByCanvas[ci][i] = m_OverlaySettings.Settings[i];
+  }
+  m_canvasLayersInitialized = true;
+}
+
+void GRIBUICtrlBar::ActivateCanvasLayers(int canvasIndex) {
+  if (!m_canvasLayersInitialized) InitCanvasLayersFromGlobal();
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  // Copy this canvas's enabled layers + per-layer format flags into the shared
+  // slots the render path reads (m_bDataPlot / m_OverlaySettings.Settings), so
+  // two canvases can show different layers AND formats with unchanged render code.
+  for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
+    m_bDataPlot[i] = m_dataPlotByCanvas[ci][i];
+  for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++)
+    m_OverlaySettings.Settings[i] = m_layerSettingsByCanvas[ci][i];
+}
+
+void GRIBUICtrlBar::CaptureCanvasLayers(int canvasIndex) {
+  if (!m_canvasLayersInitialized) InitCanvasLayersFromGlobal();
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
+    m_dataPlotByCanvas[ci][i] = m_bDataPlot[i];
+  for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++)
+    m_layerSettingsByCanvas[ci][i] = m_OverlaySettings.Settings[i];
+}
+
+bool &GRIBUICtrlBar::CanvasDataPlot(int canvasIndex, int layerId) {
+  if (!m_canvasLayersInitialized) InitCanvasLayersFromGlobal();
+  return m_dataPlotByCanvas[(canvasIndex == 1) ? 1 : 0][layerId];
+}
+
 void GRIBUICtrlBar::ResetCanvasTimeOverrides() {
   GRIBOverlayFactory *factory = pPlugIn->GetGRIBOverlayFactory();
   for (int ci = 0; ci < 2; ci++) {
