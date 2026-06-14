@@ -2205,8 +2205,16 @@ void GRIBUICtrlBar::ActivateCanvasLayers(int canvasIndex) {
   // two canvases can show different layers AND formats with unchanged render code.
   for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
     m_bDataPlot[i] = m_dataPlotByCanvas[ci][i];
-  for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++)
+  for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++) {
+    // m_Units is a GLOBAL user setting (synced from DpUnitManager via
+    // SyncUnitsToGribSettings), NOT per-canvas. Preserve the live unit across the
+    // per-canvas swap, otherwise a stale snapshot reverts the unit on the next
+    // render and the overlay color bar shows the old unit (e.g. kts after the
+    // user switched to m/s).
+    const int liveUnits = m_OverlaySettings.Settings[i].m_Units;
     m_OverlaySettings.Settings[i] = m_layerSettingsByCanvas[ci][i];
+    m_OverlaySettings.Settings[i].m_Units = liveUnits;
+  }
 }
 
 void GRIBUICtrlBar::CaptureCanvasLayers(int canvasIndex) {
