@@ -280,6 +280,47 @@ public:
   /** Current set of GRIB records for timeline playback. */
   GribTimelineRecordSet *m_pTimelineSet;
 
+  // Per-canvas time (dual-chart mode). m_canvasTimeIndex[ci] == -1 means that
+  // canvas follows the global timeline; otherwise it holds a record index and
+  // m_pTimelineSetByCanvas[ci] owns the interpolated set pushed to the factory.
+  int m_canvasTimeIndex[2] = {-1, -1};
+  GribTimelineRecordSet *m_pTimelineSetByCanvas[2] = {nullptr, nullptr};
+  void TimelineChangedForCanvas(int canvasIndex);
+  wxDateTime TimelineTimeForCanvas(int canvasIndex);
+  void ResetCanvasTimeOverrides();  // drop overrides (new file / data change)
+
+  // Per-canvas layers + per-layer format flags (dual-chart mode). Each canvas has
+  // its own copy of m_bDataPlot[] AND m_OverlaySettings.Settings[]. The factory's
+  // SelectCanvasContext() copies the active canvas's copy into the shared
+  // m_bDataPlot / m_OverlaySettings.Settings (read in the render path) via
+  // ActivateCanvasLayers(), so the render code is unchanged. The API layer/format
+  // setters activate the control canvas, mutate the shared slot (so the existing
+  // conflict-resolution/persist side-effects run), then CaptureCanvasLayers()
+  // stores the result back into that canvas's copy.
+  bool m_dataPlotByCanvas[2][GribOverlaySettings::GEO_ALTITUDE];
+  GribOverlaySettings::OverlayDataSettings
+      m_layerSettingsByCanvas[2][GribOverlaySettings::SETTINGS_COUNT];
+  bool m_canvasLayersInitialized = false;
+  void InitCanvasLayersFromGlobal();  // seed both copies from the global state
+  void ActivateCanvasLayers(int canvasIndex);  // copy a canvas's copy -> shared
+  void CaptureCanvasLayers(int canvasIndex);    // copy shared -> a canvas's copy
+  // Init-safe per-canvas layer-enable accessor used by the plugin API.
+  bool &CanvasDataPlot(int canvasIndex, int layerId);
+
+  // Persist / restore each canvas's weather across OpenCPN restarts. SaveCanvasState
+  // writes the per-canvas time index + enabled layers + per-layer format toggles;
+  // LoadCanvasState seeds both canvases from the (persisted) global settings then
+  // overlays the saved per-canvas deltas (units stay global). Call LoadCanvasState
+  // AFTER the GRIB file is opened so the restored time indices can be clamped.
+  void SaveCanvasState();
+  void LoadCanvasState();
+
+  // Enforce mutually-exclusive display formats: enabling format X on layer `Id`
+  // turns X off on every other layer (only one layer may own a given format).
+  // Operates on this control bar's own state, so it works in the embedded
+  // deeprey-gui mode where the native CursorData panel is never created.
+  void ResolveDisplayConflicts(int Id);
+
   /** Timer for controlling GRIB animation playback. */
   wxTimer m_tPlayStop;
   /** Plugin instance that owns this control bar. */

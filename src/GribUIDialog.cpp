@@ -312,6 +312,12 @@ GRIBUICtrlBar::GRIBUICtrlBar(wxWindow *parent, wxWindowID id,
 }
 
 GRIBUICtrlBar::~GRIBUICtrlBar() {
+  // Free per-canvas timeline overrides (owned here).
+  for (int ci = 0; ci < 2; ci++) {
+    delete m_pTimelineSetByCanvas[ci];
+    m_pTimelineSetByCanvas[ci] = nullptr;
+  }
+
   wxFileConfig *pConf = GetOCPNConfigObject();
   ;
 
@@ -434,6 +440,9 @@ void GRIBUICtrlBar::OpenFile(bool newestFile) {
   pPlugIn->GetGRIBOverlayFactory()->ClearParticles();
   m_Altitude = 0;
   m_FileIntervalIndex = m_OverlaySettings.m_SlicesPerUpdate;
+  // Drop per-canvas time overrides before the record array is freed — their
+  // interpolated sets reference the old array, so they must not survive the load.
+  ResetCanvasTimeOverrides();
   delete m_bGRIBActiveFile;
   delete m_pTimelineSet;
   m_pTimelineSet = nullptr;
@@ -2127,9 +2136,266 @@ void GRIBUICtrlBar::SetGribTimelineRecordSet(
   delete m_pTimelineSet;
   m_pTimelineSet = pTimelineSet;
 
-  if (!pPlugIn->GetGRIBOverlayFactory()) return;
+  GRIBOverlayFactory *factory = pPlugIn->GetGRIBOverlayFactory();
+  if (!factory) return;
 
-  pPlugIn->GetGRIBOverlayFactory()->SetGribTimelineRecordSet(m_pTimelineSet);
+  // Setting the global set Reset()s the factory (drops its per-canvas timeline
+  // aliases). Re-apply any per-canvas overrides afterwards so a canvas holding
+  // its own time keeps it across global updates (e.g. playback of the other
+  // canvas). New-file loads clear the overrides first (ResetCanvasTimeOverrides),
+  // so the sets re-applied here always reference the live record array.
+  factory->SetGribTimelineRecordSet(m_pTimelineSet);
+  for (int ci = 0; ci < 2; ci++) {
+    if (m_pTimelineSetByCanvas[ci])
+      factory->SetGribTimelineRecordSet(m_pTimelineSetByCanvas[ci], ci);
+  }
+}
+
+wxDateTime GRIBUICtrlBar::TimelineTimeForCanvas(int canvasIndex) {
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  if (m_canvasTimeIndex[ci] >= 0 && m_bGRIBActiveFile) {
+    ArrayOfGribRecordSets *rsa = m_bGRIBActiveFile->GetRecordSetArrayPtr();
+    if (rsa && m_canvasTimeIndex[ci] < (int)rsa->GetCount())
+      return rsa->Item(m_canvasTimeIndex[ci]).m_Reference_Time;
+  }
+  return TimelineTime();  // no/invalid override -> follow the global timeline
+}
+
+void GRIBUICtrlBar::TimelineChangedForCanvas(int canvasIndex) {
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  GRIBOverlayFactory *factory = pPlugIn->GetGRIBOverlayFactory();
+  if (!factory) return;
+
+  // No override (or no data): this canvas follows the global timeline. Drop the
+  // owned per-canvas set and clear the factory alias (it falls back to global).
+  if (m_canvasTimeIndex[ci] < 0 || !m_bGRIBActiveFile ||
+      !m_bGRIBActiveFile->IsOK()) {
+    factory->SetGribTimelineRecordSet(nullptr, ci);
+    GribTimelineRecordSet *old = m_pTimelineSetByCanvas[ci];
+    m_pTimelineSetByCanvas[ci] = nullptr;
+    delete old;
+    return;
+  }
+
+  // Build this canvas's set at its own time. Hand the new set to the factory
+  // BEFORE deleting the old one so the factory never holds a dangling pointer.
+  GribTimelineRecordSet *newSet = GetTimeLineRecordSet(TimelineTimeForCanvas(ci));
+  GribTimelineRecordSet *old = m_pTimelineSetByCanvas[ci];
+  m_pTimelineSetByCanvas[ci] = newSet;
+  factory->SetGribTimelineRecordSet(newSet, ci);
+  delete old;
+  RequestRefresh(GetGRIBCanvas());
+}
+
+void GRIBUICtrlBar::InitCanvasLayersFromGlobal() {
+  for (int ci = 0; ci < 2; ci++) {
+    for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
+      m_dataPlotByCanvas[ci][i] = m_bDataPlot[i];
+    for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++)
+      m_layerSettingsByCanvas[ci][i] = m_OverlaySettings.Settings[i];
+  }
+  m_canvasLayersInitialized = true;
+}
+
+void GRIBUICtrlBar::ActivateCanvasLayers(int canvasIndex) {
+  if (!m_canvasLayersInitialized) InitCanvasLayersFromGlobal();
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  // Copy this canvas's enabled layers + per-layer format flags into the shared
+  // slots the render path reads (m_bDataPlot / m_OverlaySettings.Settings), so
+  // two canvases can show different layers AND formats with unchanged render code.
+  for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
+    m_bDataPlot[i] = m_dataPlotByCanvas[ci][i];
+  for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++) {
+    // m_Units is a GLOBAL user setting (synced from DpUnitManager via
+    // SyncUnitsToGribSettings), NOT per-canvas. Preserve the live unit across the
+    // per-canvas swap, otherwise a stale snapshot reverts the unit on the next
+    // render and the overlay color bar shows the old unit (e.g. kts after the
+    // user switched to m/s).
+    const int liveUnits = m_OverlaySettings.Settings[i].m_Units;
+    m_OverlaySettings.Settings[i] = m_layerSettingsByCanvas[ci][i];
+    m_OverlaySettings.Settings[i].m_Units = liveUnits;
+  }
+}
+
+void GRIBUICtrlBar::CaptureCanvasLayers(int canvasIndex) {
+  if (!m_canvasLayersInitialized) InitCanvasLayersFromGlobal();
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
+    m_dataPlotByCanvas[ci][i] = m_bDataPlot[i];
+  for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++)
+    m_layerSettingsByCanvas[ci][i] = m_OverlaySettings.Settings[i];
+}
+
+bool &GRIBUICtrlBar::CanvasDataPlot(int canvasIndex, int layerId) {
+  if (!m_canvasLayersInitialized) InitCanvasLayersFromGlobal();
+  return m_dataPlotByCanvas[(canvasIndex == 1) ? 1 : 0][layerId];
+}
+
+// Single-owner-per-format enforcement, on the control bar itself so it runs in the
+// embedded deeprey-gui mode (where the native CursorData panel — and thus
+// CursorData::ResolveDisplayConflicts — is never instantiated). Mirrors the logic in
+// CursorData, which now delegates here.
+void GRIBUICtrlBar::ResolveDisplayConflicts(int Id) {
+  std::vector<std::pair<int, int>> changedFormats;  // (layerId, formatType)
+
+  for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++) {
+    if (i == Id || !m_bDataPlot[i]) continue;
+
+    GribOverlaySettings::OverlayDataSettings &newSettings =
+        m_OverlaySettings.Settings[Id];
+    GribOverlaySettings::OverlayDataSettings &existingSettings =
+        m_OverlaySettings.Settings[i];
+
+    if (newSettings.m_bBarbedArrows && existingSettings.m_bBarbedArrows) {
+      existingSettings.m_bBarbedArrows = false;
+      changedFormats.push_back({i, 0});  // FORMAT_BARBED_ARROWS
+    }
+    if (newSettings.m_bDirectionArrows && existingSettings.m_bDirectionArrows) {
+      existingSettings.m_bDirectionArrows = false;
+      changedFormats.push_back({i, 1});  // FORMAT_DIRECTION_ARROWS
+    }
+    if (newSettings.m_bIsoBars && existingSettings.m_bIsoBars) {
+      existingSettings.m_bIsoBars = false;
+      changedFormats.push_back({i, 2});  // FORMAT_ISOBARS
+    }
+    if (newSettings.m_bNumbers && existingSettings.m_bNumbers) {
+      existingSettings.m_bNumbers = false;
+      changedFormats.push_back({i, 3});  // FORMAT_NUMBERS
+    }
+    if (newSettings.m_bOverlayMap && existingSettings.m_bOverlayMap) {
+      existingSettings.m_bOverlayMap = false;
+      changedFormats.push_back({i, 4});  // FORMAT_OVERLAY_MAP
+    }
+    if (newSettings.m_bParticles && existingSettings.m_bParticles) {
+      existingSettings.m_bParticles = false;
+      changedFormats.push_back({i, 5});  // FORMAT_PARTICLES
+    }
+  }
+
+  SetFactoryOptions();
+
+  if (!changedFormats.empty() && pPlugIn && pPlugIn->GetGribAPI()) {
+    pPlugIn->GetGribAPI()->NotifyFormatStateChanged(changedFormats);
+  }
+}
+
+// Per-canvas config keys live under /PlugIns/GRIB/Canvas0|Canvas1. We persist only
+// the per-canvas DELTAS from the global settings (time index, enabled layers, and
+// the per-layer format toggles the GUI can set per canvas) — the rest is reseeded
+// from the (already persisted) global GribOverlaySettings on load. Units are NOT
+// persisted here: they are a global user setting.
+void GRIBUICtrlBar::SaveCanvasState() {
+  wxFileConfig *pConf = GetOCPNConfigObject();
+  if (!pConf) return;
+  // Nothing meaningful to save until the per-canvas copies have been seeded (else
+  // m_dataPlotByCanvas / m_layerSettingsByCanvas hold uninitialized data).
+  if (!m_canvasLayersInitialized) return;
+
+  wxString oldPath = pConf->GetPath();
+  for (int ci = 0; ci < 2; ci++) {
+    pConf->SetPath(wxString::Format(_T("/PlugIns/GRIB/Canvas%d"), ci));
+    pConf->Write(_T("TimeIndex"), m_canvasTimeIndex[ci]);
+    for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
+      pConf->Write(wxString::Format(_T("L%d_DataPlot"), i),
+                   m_dataPlotByCanvas[ci][i]);
+    for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++) {
+      const GribOverlaySettings::OverlayDataSettings &s =
+          m_layerSettingsByCanvas[ci][i];
+      wxString p = wxString::Format(_T("L%d_"), i);
+      pConf->Write(p + _T("Barbed"), s.m_bBarbedArrows);
+      pConf->Write(p + _T("BarbedVis"), s.m_iBarbedVisibility);
+      pConf->Write(p + _T("IsoBars"), s.m_bIsoBars);
+      pConf->Write(p + _T("IsoBarVis"), s.m_iIsoBarVisibility);
+      pConf->Write(p + _T("Numbers"), s.m_bNumbers);
+      pConf->Write(p + _T("OverlayMap"), s.m_bOverlayMap);
+      pConf->Write(p + _T("DirArrows"), s.m_bDirectionArrows);
+      pConf->Write(p + _T("Particles"), s.m_bParticles);
+      pConf->Write(p + _T("AbbrIso"), s.m_bAbbrIsoBarsNumbers);
+    }
+  }
+  pConf->SetPath(oldPath);
+}
+
+void GRIBUICtrlBar::LoadCanvasState() {
+  wxFileConfig *pConf = GetOCPNConfigObject();
+  if (!pConf) return;
+
+  // Seed both canvases from the (persisted) global settings, then overlay the saved
+  // per-canvas deltas. This sets m_canvasLayersInitialized so ActivateCanvasLayers
+  // won't re-seed from global afterwards.
+  InitCanvasLayersFromGlobal();
+
+  int maxIdx = -1;
+  if (m_bGRIBActiveFile && m_bGRIBActiveFile->IsOK())
+    maxIdx = (int)m_bGRIBActiveFile->GetRecordSetArrayPtr()->GetCount() - 1;
+
+  wxString oldPath = pConf->GetPath();
+  for (int ci = 0; ci < 2; ci++) {
+    pConf->SetPath(wxString::Format(_T("/PlugIns/GRIB/Canvas%d"), ci));
+    int ti = -1;
+    pConf->Read(_T("TimeIndex"), &ti, -1);
+    // Drop a stale index if the loaded file now has fewer records (or none) — the
+    // canvas falls back to the global timeline.
+    if (ti > maxIdx) ti = -1;
+    m_canvasTimeIndex[ci] = ti;
+    for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
+      pConf->Read(wxString::Format(_T("L%d_DataPlot"), i),
+                  &m_dataPlotByCanvas[ci][i], m_dataPlotByCanvas[ci][i]);
+    for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++) {
+      GribOverlaySettings::OverlayDataSettings &s = m_layerSettingsByCanvas[ci][i];
+      wxString p = wxString::Format(_T("L%d_"), i);
+      pConf->Read(p + _T("Barbed"), &s.m_bBarbedArrows, s.m_bBarbedArrows);
+      pConf->Read(p + _T("BarbedVis"), &s.m_iBarbedVisibility, s.m_iBarbedVisibility);
+      pConf->Read(p + _T("IsoBars"), &s.m_bIsoBars, s.m_bIsoBars);
+      pConf->Read(p + _T("IsoBarVis"), &s.m_iIsoBarVisibility, s.m_iIsoBarVisibility);
+      pConf->Read(p + _T("Numbers"), &s.m_bNumbers, s.m_bNumbers);
+      pConf->Read(p + _T("OverlayMap"), &s.m_bOverlayMap, s.m_bOverlayMap);
+      pConf->Read(p + _T("DirArrows"), &s.m_bDirectionArrows, s.m_bDirectionArrows);
+      pConf->Read(p + _T("Particles"), &s.m_bParticles, s.m_bParticles);
+      pConf->Read(p + _T("AbbrIso"), &s.m_bAbbrIsoBarsNumbers, s.m_bAbbrIsoBarsNumbers);
+    }
+  }
+  pConf->SetPath(oldPath);
+
+  // Defensive: a canvas must never carry two ENABLED layers sharing the same
+  // mutually-exclusive format (heatmap, numbers, particles, barbs, isobars,
+  // direction arrows) — they would render on top of each other. The live path
+  // enforces this via ResolveDisplayConflicts, but a restored config bypasses it,
+  // so for each format keep the first enabled owner per canvas and clear the rest.
+  for (int ci = 0; ci < 2; ci++) {
+    bool seenOverlay = false, seenNumbers = false, seenParticles = false;
+    bool seenBarbed = false, seenIsoBars = false, seenDirArrows = false;
+    for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++) {
+      if (!m_dataPlotByCanvas[ci][i]) continue;
+      GribOverlaySettings::OverlayDataSettings &s = m_layerSettingsByCanvas[ci][i];
+      auto keepFirst = [](bool &flag, bool &seen) {
+        if (!flag) return;
+        if (seen) flag = false; else seen = true;
+      };
+      keepFirst(s.m_bOverlayMap, seenOverlay);
+      keepFirst(s.m_bNumbers, seenNumbers);
+      keepFirst(s.m_bParticles, seenParticles);
+      keepFirst(s.m_bBarbedArrows, seenBarbed);
+      keepFirst(s.m_bIsoBars, seenIsoBars);
+      keepFirst(s.m_bDirectionArrows, seenDirArrows);
+    }
+  }
+
+  // Build per-canvas interpolated timelines for any restored time override (needs
+  // a loaded file).
+  if (maxIdx >= 0)
+    for (int ci = 0; ci < 2; ci++)
+      if (m_canvasTimeIndex[ci] >= 0) TimelineChangedForCanvas(ci);
+}
+
+void GRIBUICtrlBar::ResetCanvasTimeOverrides() {
+  GRIBOverlayFactory *factory = pPlugIn->GetGRIBOverlayFactory();
+  for (int ci = 0; ci < 2; ci++) {
+    m_canvasTimeIndex[ci] = -1;
+    if (factory) factory->SetGribTimelineRecordSet(nullptr, ci);
+    delete m_pTimelineSetByCanvas[ci];
+    m_pTimelineSetByCanvas[ci] = nullptr;
+  }
 }
 
 void GRIBUICtrlBar::SetTimeLineMax(bool SetValue) {

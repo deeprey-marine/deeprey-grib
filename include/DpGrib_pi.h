@@ -47,7 +47,7 @@
 #define PLUGIN_VERSION_MINOR 0
 
 #define MY_API_VERSION_MAJOR 1
-#define MY_API_VERSION_MINOR 16
+#define MY_API_VERSION_MINOR 18
 
 #include "ocpn_plugin.h"
 
@@ -87,7 +87,7 @@ enum SettingsDisplay {
   PARTICLES
 };
 
-class DpGrib_pi : public opencpn_plugin_116 {
+class DpGrib_pi : public opencpn_plugin_118 {
 public:
   DpGrib_pi(void *ppimgr);
   ~DpGrib_pi(void);
@@ -115,7 +115,7 @@ public:
   void SetPluginMessage(wxString &message_id, wxString &message_body);
   bool RenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp);
   bool RenderGLOverlayMultiCanvas(wxGLContext *pcontext, PlugIn_ViewPort *vp,
-                                  int canvasIndex);
+                                  int canvasIndex, int priority);
   void SendTimelineMessage(wxDateTime time);
   void SetDefaults(void);
   int GetToolBarToolCount(void);
@@ -172,6 +172,11 @@ public:
   // Internal methods for API access
   void Internal_SetVisible(bool visible);
   bool Internal_IsVisible() const;
+  // Per-canvas visibility (dual-chart mode). The master m_bShowGrib stays the
+  // "data loaded / weather active" gate; m_canvasVisible[] gates rendering per
+  // canvas so one canvas can show weather while the other does not.
+  void Internal_SetVisible(bool visible, int canvasIndex);
+  bool Internal_IsVisible(int canvasIndex) const;
   void Internal_SetOverlayTransparency(int transparency);
   int Internal_GetOverlayTransparency() const;
   void Internal_StartWorldDownload(double latMin, double lonMin, double latMax,
@@ -196,12 +201,22 @@ public:
   int Internal_GetTimeStepCount() const;
   int Internal_GetCurrentTimeIndex() const;
   bool Internal_SetTimeIndex(int index);
+  // Per-canvas time (dual-chart mode): each canvas can show a different time step
+  // from the same loaded file. -1 / fallback follows the global timeline.
+  int Internal_GetCurrentTimeIndex(int canvasIndex) const;
+  bool Internal_SetTimeIndex(int index, int canvasIndex);
   bool Internal_SetDisplayToCurrentTime();
   wxString Internal_GetCurrentTimeString() const;
   wxString Internal_GetTimeString(int index) const;
   wxString Internal_GetCurrentTimeStringLocal() const;
   wxString Internal_GetTimeStringLocal(int index) const;
   
+  // Per-canvas layer control (dual-chart mode): deeprey-gui calls
+  // SetActiveLayerCanvas(canvasIndex) before issuing/reading layer + format
+  // state, so the layer/format setters/getters below operate on that canvas's
+  // copy (kept in GRIBUICtrlBar) instead of one global set.
+  void Internal_SetActiveLayerCanvas(int canvasIndex);
+
   // Layer management
   bool Internal_SetLayerVisible(int layerId, bool visible);
   bool Internal_IsLayerVisible(int layerId) const;
@@ -233,6 +248,12 @@ public:
   // Legend stacking (positioned by deeprey-gui)
   void Internal_SetLegendLayout(int slot, int stackCount, bool drawInfoRow);
   bool Internal_IsColorOverlayActive();
+  // Per-canvas variants (dual-chart mode).
+  void Internal_SetLegendLayout(int slot, int stackCount, bool drawInfoRow,
+                                int canvasIndex);
+  bool Internal_IsColorOverlayActive(int canvasIndex);
+  // Per-canvas render-visibility helper (clamps index to [0,1]).
+  bool IsCanvasWeatherVisible(int canvasIndex) const;
 
   // Meteogram data access methods
   bool Internal_HasActiveFile() const;
@@ -267,6 +288,8 @@ private:
 
   bool DoRenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                          int canvasIndex);
+  bool DoRenderGLLegend(wxGLContext *pcontext, PlugIn_ViewPort *vp,
+                        int canvasIndex);
   bool DoRenderOverlay(wxDC &dc, PlugIn_ViewPort *vp, int canvasIndex);
 
   wxFileConfig *m_pconfig;
@@ -314,6 +337,14 @@ private:
   bool m_bGRIBShowIcon;
 
   bool m_bShowGrib;
+  // Per-canvas render gate (dual-chart mode). Default FALSE: on a fresh start the
+  // master m_bShowGrib is off, so when the user enables weather on ONE canvas, the
+  // master-toggle path sets only that canvas's flag (and the bare/global toggle
+  // still defaults both ON via OnToolbarToolCallback). {true,true} caused canvas 1
+  // to inherit weather the first time canvas 0 was enabled. Restored from config.
+  bool m_canvasVisible[2] = {false, false};
+  // Which canvas the layer/format API setters/getters target (set by the GUI).
+  int m_layerControlCanvas = 0;
   /**
    * Stores current viewport.
    *

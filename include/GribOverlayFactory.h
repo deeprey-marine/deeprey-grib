@@ -196,8 +196,21 @@ public:
   }
 
   void SetGribTimelineRecordSet(GribTimelineRecordSet *pGribTimelineRecordSet1);
+  // Per-canvas timeline (dual-chart mode): each canvas can display a different
+  // time step from the same loaded GRIB file. Passing nullptr makes that canvas
+  // fall back to the shared/global set. NON-OWNING (the control bar owns the
+  // sets, mirroring the single-set ownership) — the caller must keep them alive.
+  void SetGribTimelineRecordSet(GribTimelineRecordSet *set, int canvasIndex);
+  // Point the factory's active timeline + overlay-texture cache at one canvas for
+  // the render/query that follows. The render is single-threaded, so swapping the
+  // active pointers per canvas is safe.
+  void SelectCanvasContext(int canvasIndex);
   bool RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp, int canvasIndex = 0);
   bool RenderGLGribOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp,
+                           int canvasIndex = 0);
+  // Draws only the screen-space colour legend. Called in a separate, higher
+  // priority pass (OVERLAY_OVER_UI) so the legend sits on top of chart graphics.
+  bool RenderGLColorLegend(wxGLContext *pcontext, PlugIn_ViewPort *vp,
                            int canvasIndex = 0);
 
   void Reset();
@@ -222,10 +235,34 @@ public:
 
   // Position the color legend for vertical stacking (set by deeprey-gui). See
   // DpGribAPI::SetLegendLayout. Defaults reproduce the standalone single bar.
+  // Global form (single-canvas / standalone): apply to both canvases so either
+  // render path reads the same layout.
   void SetLegendLayout(int slot, int stackCount, bool drawInfoRow) {
+    for (int c = 0; c < 2; ++c) {
+      m_legendSlotByCanvas[c] = slot;
+      m_legendStackCountByCanvas[c] = stackCount;
+      m_legendDrawInfoRowByCanvas[c] = drawInfoRow;
+    }
     m_legendSlot = slot;
     m_legendStackCount = stackCount;
     m_legendDrawInfoRow = drawInfoRow;
+  }
+
+  // Per-canvas form (dual-chart mode): each canvas keeps its own legend slot so
+  // canvas 0's weather bar can stack below depth while canvas 1's stacks
+  // differently. SelectCanvasContext() copies the chosen canvas's slot into the
+  // active working copy the render path reads.
+  void SetLegendLayout(int slot, int stackCount, bool drawInfoRow,
+                       int canvasIndex) {
+    const int ci = (canvasIndex == 1) ? 1 : 0;
+    m_legendSlotByCanvas[ci] = slot;
+    m_legendStackCountByCanvas[ci] = stackCount;
+    m_legendDrawInfoRowByCanvas[ci] = drawInfoRow;
+    if (ci == m_activeCanvas) {  // keep active copy live for an immediate render
+      m_legendSlot = slot;
+      m_legendStackCount = stackCount;
+      m_legendDrawInfoRow = drawInfoRow;
+    }
   }
 
   // True iff a colored overlay legend would actually be drawn this frame (same
@@ -233,6 +270,8 @@ public:
   // single source of truth for "weather legend is on screen", so deeprey-gui's
   // arbiter and course-button logic match what is really rendered.
   bool HasActiveColorOverlay();
+  // Per-canvas variant: selects the canvas's timeline first (dual-chart mode).
+  bool HasActiveColorOverlay(int canvasIndex);
 
   wxSize m_ParentSize;
 
@@ -368,9 +407,15 @@ private:
 
   // Vertical stacking, assigned by deeprey-gui via SetLegendLayout. Defaults give
   // the standalone single-bar layout (slot 0, alone, owns the shared info row).
+  // The non-suffixed members are the ACTIVE working copy the render path reads;
+  // SelectCanvasContext() loads them from the per-canvas arrays so each canvas
+  // stacks independently in dual-chart mode.
   int m_legendSlot = 0;
   int m_legendStackCount = 1;
   bool m_legendDrawInfoRow = true;
+  int m_legendSlotByCanvas[2] = {0, 0};
+  int m_legendStackCountByCanvas[2] = {1, 1};
+  bool m_legendDrawInfoRowByCanvas[2] = {true, true};
 
   void drawDoubleArrow(int x, int y, double ang, wxColour arrowColor,
                        int arrowWidth, int arrowSizeIdx, double scale);
@@ -404,7 +449,17 @@ private:
 
   double m_last_vp_scale;
 
-  GribOverlay *m_pOverlay[GribOverlaySettings::SETTINGS_COUNT];
+  // Overlay-map color textures, cached per canvas (dual-chart mode) so two
+  // canvases at different times/layers don't reuse each other's texture.
+  // m_pOverlay aliases the active canvas's row (set by SelectCanvasContext).
+  GribOverlay *m_overlayByCanvas[2][GribOverlaySettings::SETTINGS_COUNT];
+  GribOverlay **m_pOverlay;  // = m_overlayByCanvas[m_activeCanvas]
+  int m_activeCanvas = 0;
+
+  // Per-canvas timeline (non-owning) + shared/global fallback (non-owning).
+  GribTimelineRecordSet *m_timelineByCanvas[2] = {nullptr, nullptr};
+  GribTimelineRecordSet *m_timelineGlobal = nullptr;
+  void ClearCanvasOverlay(int canvasIndex);  // free one canvas's overlay textures
 
   // GPU particle rendering state (GL 3.3+)
   bool m_bUseGPURenderer;

@@ -240,8 +240,11 @@ GRIBOverlayFactory::GRIBOverlayFactory(GRIBUICtrlBar &dlg)
   m_Font_Message = nullptr;
 
   InitColorsTable();
-  for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++)
-    m_pOverlay[i] = nullptr;
+  for (int c = 0; c < 2; c++)
+    for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++)
+      m_overlayByCanvas[c][i] = nullptr;
+  m_activeCanvas = 0;
+  m_pOverlay = m_overlayByCanvas[0];
 
   m_bUseGPURenderer = false;
   m_bGPUInitialized = false;
@@ -406,6 +409,9 @@ GRIBOverlayFactory::~GRIBOverlayFactory() {
 
 void GRIBOverlayFactory::Reset() {
   m_pGribTimelineRecordSet = nullptr;
+  m_timelineGlobal = nullptr;
+  // Drop the non-owning per-canvas aliases too — the control bar re-pushes them.
+  m_timelineByCanvas[0] = m_timelineByCanvas[1] = nullptr;
 
   ClearCachedData();
 }
@@ -425,16 +431,55 @@ void GRIBOverlayFactory::SetMessageFont() {
 
 void GRIBOverlayFactory::SetGribTimelineRecordSet(
     GribTimelineRecordSet *pGribTimelineRecordSet) {
+  // Global timeline change (file load / playback / "now"): resets everything,
+  // including per-canvas overrides, so both canvases start from the same set.
   Reset();
+  m_timelineGlobal = pGribTimelineRecordSet;
   m_pGribTimelineRecordSet = pGribTimelineRecordSet;
 }
 
-void GRIBOverlayFactory::ClearCachedData(void) {
-  //    Clear out the cached bitmaps
+void GRIBOverlayFactory::SetGribTimelineRecordSet(GribTimelineRecordSet *set,
+                                                  int canvasIndex) {
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  m_timelineByCanvas[ci] = set;  // nullptr => fall back to the global set
+  // This canvas's overlay-map colors were built for the old time; drop them so
+  // they rebuild at the new time. (Other canvas + global cache untouched.)
+  ClearCanvasOverlay(ci);
+  // Keep the active alias coherent if we just changed the active canvas's set.
+  if (ci == m_activeCanvas)
+    m_pGribTimelineRecordSet = set ? set : m_timelineGlobal;
+}
+
+void GRIBOverlayFactory::SelectCanvasContext(int canvasIndex) {
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  m_activeCanvas = ci;
+  m_pOverlay = m_overlayByCanvas[ci];
+  m_pGribTimelineRecordSet =
+      m_timelineByCanvas[ci] ? m_timelineByCanvas[ci] : m_timelineGlobal;
+  // Copy this canvas's layer + per-layer format flags into the shared slots the
+  // render path reads (m_dlg.m_bDataPlot / m_Settings.Settings), so two canvases
+  // can show different layers/formats without touching the 60+ render reads.
+  m_dlg.ActivateCanvasLayers(ci);
+  // Load this canvas's legend stacking slot into the active working copy that
+  // RenderColorLegend reads — otherwise both canvases share one slot and the
+  // weather bar lands on top of the depth bar on whichever rendered second.
+  m_legendSlot = m_legendSlotByCanvas[ci];
+  m_legendStackCount = m_legendStackCountByCanvas[ci];
+  m_legendDrawInfoRow = m_legendDrawInfoRowByCanvas[ci];
+}
+
+void GRIBOverlayFactory::ClearCanvasOverlay(int canvasIndex) {
+  const int ci = (canvasIndex == 1) ? 1 : 0;
   for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++) {
-    delete m_pOverlay[i];
-    m_pOverlay[i] = nullptr;
+    delete m_overlayByCanvas[ci][i];
+    m_overlayByCanvas[ci][i] = nullptr;
   }
+}
+
+void GRIBOverlayFactory::ClearCachedData(void) {
+  //    Clear out the cached bitmaps (both canvases)
+  ClearCanvasOverlay(0);
+  ClearCanvasOverlay(1);
 }
 
 #ifdef __OCPN__ANDROID__
@@ -481,6 +526,26 @@ bool GRIBOverlayFactory::RenderGLGribOverlay(wxGLContext *pcontext,
   // qDebug() << "RenderGLGribOverlayDone" << sw.GetTime();
 
   return rv;
+}
+
+bool GRIBOverlayFactory::RenderGLColorLegend(wxGLContext *pcontext,
+                                             PlugIn_ViewPort *vp,
+                                             int canvasIndex) {
+#if defined(ocpnUSE_GL) && !defined(USE_ANDROID_GLES2)
+  if (g_bpause) return false;
+  // Select this canvas's timeline before the gate + draw (dual-chart mode).
+  SelectCanvasContext(canvasIndex);
+  if (!m_pGribTimelineRecordSet) return false;
+
+  m_pdc = nullptr;  // GL render path; RenderColorLegend is GL-only.
+  RenderColorLegend(vp);
+  return true;
+#else
+  (void)pcontext;
+  (void)vp;
+  (void)canvasIndex;
+  return false;
+#endif
 }
 
 bool GRIBOverlayFactory::RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp,
@@ -573,6 +638,9 @@ void GRIBOverlayFactory::SettingsIdToGribId(int i, int &idx, int &idy,
 
 bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp,
                                              int canvasIndex) {
+  // Point the active timeline + overlay-texture cache at this canvas.
+  SelectCanvasContext(canvasIndex);
+
   if (!m_pGribTimelineRecordSet) {
 #if 0
     DrawMessageWindow((m_Message), vp->pix_width, vp->pix_height,
@@ -688,9 +756,9 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp,
     }
   }
 
-#ifdef ocpnUSE_GL
-  if (!m_pdc) RenderColorLegend(vp);  // screen-space legend, on top, GL only
-#endif
+  // The colour legend is drawn separately, in a dedicated OVERLAY_OVER_UI pass
+  // (RenderGLColorLegend), so it lands on top of the chart's light graphics
+  // instead of underneath them. See DpGrib_pi::RenderGLOverlayMultiCanvas.
   return true;
 }
 
@@ -760,6 +828,12 @@ bool GRIBOverlayFactory::HasActiveColorOverlay() {
     mx = m_Settings.GetMax(active);
   }
   return mx > mn;
+}
+
+bool GRIBOverlayFactory::HasActiveColorOverlay(int canvasIndex) {
+  // Select this canvas's timeline first, then run the same render-truth check.
+  SelectCanvasContext(canvasIndex);
+  return HasActiveColorOverlay();
 }
 
 void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
@@ -898,6 +972,13 @@ void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
   // widget guards its own attribute state.
   glUseProgram(0);
   glActiveTexture(GL_TEXTURE0);  // GRIB shaders may leave a different unit active
+
+  // Depth testing must be off: this is a 2D screen-space overlay drawn last, but
+  // a prior pass (e.g. deepview's 3D bathymetry) may leave GL_DEPTH_TEST enabled
+  // with near depth values that would otherwise occlude the legend.
+  const GLboolean wasDepthTest = glIsEnabled(GL_DEPTH_TEST);
+  glDisable(GL_DEPTH_TEST);
+
   glMatrixMode(GL_PROJECTION);
   glPushMatrix();
   glLoadIdentity();
@@ -915,6 +996,8 @@ void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
   glMatrixMode(GL_PROJECTION);
   glPopMatrix();
   glMatrixMode(GL_MODELVIEW);
+
+  if (wasDepthTest) glEnable(GL_DEPTH_TEST);
 #else
   (void)vp;
 #endif
