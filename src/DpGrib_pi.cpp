@@ -333,8 +333,21 @@ void DpGrib_pi::SetDefaults(void) {}
 int DpGrib_pi::GetToolBarToolCount(void) { return 1; }
 
 bool DpGrib_pi::MouseEventHook(wxMouseEvent &event) {
-  if ((m_pGribCtrlBar && m_pGribCtrlBar->pReq_Dialog))
-    return m_pGribCtrlBar->pReq_Dialog->MouseEventHook(event);
+  if (m_pGribCtrlBar && m_pGribCtrlBar->pReq_Dialog &&
+      m_pGribCtrlBar->pReq_Dialog->MouseEventHook(event))
+    return true;
+
+  // GRIB legend orientation (nav-mode) icon, attributed to the clicked canvas
+  // (the legend sits at the same canvas-local spot on both, so the canvas must
+  // come from the event target, not the click position).
+  if (event.LeftDown() && m_pGRIBOverlayFactory) {
+    wxWindow *win = dynamic_cast<wxWindow *>(event.GetEventObject());
+    int ci = (win && win == GetCanvasByIndex(1)) ? 1 : 0;
+    if (m_pGRIBOverlayFactory->HandleNavIconClick(event.GetPosition(), ci)) {
+      RequestRefresh(win);
+      return true;
+    }
+  }
   return false;
 }
 

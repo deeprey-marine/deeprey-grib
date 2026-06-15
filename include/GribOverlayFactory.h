@@ -287,6 +287,11 @@ public:
   // Per-canvas variant: selects the canvas's timeline first (dual-chart mode).
   bool HasActiveColorOverlay(int canvasIndex);
 
+  // Cycles chart orientation if `pt` hit the legend's nav-mode icon on
+  // `canvasIndex`. Only acts when this canvas owns the shared info row (so it
+  // never fights the deepview legend's own handler). Returns true if consumed.
+  bool HandleNavIconClick(const wxPoint &pt, int canvasIndex);
+
   wxSize m_ParentSize;
 
   pi_ocpnDC *m_oDC;
@@ -417,6 +422,7 @@ private:
   // Nav-mode icon textures (0=north, 1=course, 2=head up); lazily GL-loaded.
   unsigned int m_navTex[3] = {0, 0, 0};
   bool m_navTexTried = false;
+  wxRect m_navIconRect;  // legend nav-icon hit rect (canvas-local; same on both)
   int m_legendScreenDpi = 0;
 
   // Vertical stacking, assigned by deeprey-gui via SetLegendLayout. Defaults give

@@ -836,6 +836,17 @@ bool GRIBOverlayFactory::HasActiveColorOverlay(int canvasIndex) {
   return HasActiveColorOverlay();
 }
 
+bool GRIBOverlayFactory::HandleNavIconClick(const wxPoint &pt, int canvasIndex) {
+  const int ci = (canvasIndex == 1) ? 1 : 0;
+  // Only the canvas that owns the shared info row draws (and owns) the nav icon.
+  if (!m_legendDrawInfoRowByCanvas[ci]) return false;
+  if (!m_navTex[0]) return false;  // icon textures never loaded -> nothing drawn
+  if (m_navIconRect.GetWidth() <= 0 || !m_navIconRect.Contains(pt)) return false;
+  PI_NavMode m = GetNavigationMode(ci);
+  SetNavigationMode(static_cast<PI_NavMode>((m + 1) % 3), ci);
+  return true;
+}
+
 void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
 #if defined(ocpnUSE_GL) && !defined(USE_ANDROID_GLES2)
   if (!vp) return;
@@ -932,13 +943,17 @@ void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
     m_navTex[2] = LoadPngTexture(d + _T("head_up.png"));
   }
   unsigned int navTex = m_navTex[0];
-  PI_NavMode navMode = GetNavigationMode(0);
+  // Per-canvas: show THIS canvas's orientation (m_activeCanvas set by
+  // SelectCanvasContext before RenderColorLegend), not a hardcoded canvas 0 --
+  // otherwise both canvases' legend compasses mirror canvas 0.
+  PI_NavMode navMode = GetNavigationMode(m_activeCanvas);
   if (navMode == PI_COURSE_UP_MODE)
     navTex = m_navTex[1];
   else if (navMode == PI_HEAD_UP_MODE)
     navTex = m_navTex[2];
   if (navTex) {
-    spec.drawCenterIcon = [navTex](int cx, int cy, int size) {
+    spec.drawCenterIcon = [navTex, this](int cx, int cy, int size) {
+      m_navIconRect = wxRect(cx - size / 2, cy - size / 2, size, size);
       const float ix = cx - size / 2.0f, iy = cy - size / 2.0f;
       glActiveTexture(GL_TEXTURE0);
       glEnable(GL_TEXTURE_2D);
