@@ -839,6 +839,9 @@ bool GRIBOverlayFactory::HasActiveColorOverlay(int canvasIndex) {
 void GRIBOverlayFactory::RenderColorLegend(PlugIn_ViewPort *vp) {
 #if defined(ocpnUSE_GL) && !defined(USE_ANDROID_GLES2)
   if (!vp) return;
+  // Hidden by deeprey-gui auto-hide for THIS canvas (SelectCanvasContext set
+  // m_activeCanvas before this call).
+  if (!m_overlayUIVisibleByCanvas[m_activeCanvas]) return;
 
   // Find the single active colored overlay map. GRIB enforces exactly one at a
   // time (CursorData turns the previous one off) and PRESSURE has no fill.

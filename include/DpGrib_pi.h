@@ -177,6 +177,10 @@ public:
   // canvas so one canvas can show weather while the other does not.
   void Internal_SetVisible(bool visible, int canvasIndex);
   bool Internal_IsVisible(int canvasIndex) const;
+  // Auto-hide gate for the on-screen color legend (driven by deeprey-gui).
+  void Internal_SetOverlayUIVisible(bool visible);
+  // Per-canvas auto-hide gate (dual-chart mode): each canvas hides independently.
+  void Internal_SetOverlayUIVisible(bool visible, int canvasIndex);
   void Internal_SetOverlayTransparency(int transparency);
   int Internal_GetOverlayTransparency() const;
   void Internal_StartWorldDownload(double latMin, double lonMin, double latMax,

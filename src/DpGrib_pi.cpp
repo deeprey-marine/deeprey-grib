@@ -2013,6 +2013,19 @@ void DpGrib_pi::Internal_SetLegendLayout(int slot, int stackCount,
   }
 }
 
+void DpGrib_pi::Internal_SetOverlayUIVisible(bool visible) {
+  // deeprey-gui's auto-hide drives this every render pass; the factory skips the
+  // legend draw when hidden so the weather bar fades like the depth bar.
+  if (m_pGRIBOverlayFactory) m_pGRIBOverlayFactory->SetOverlayUIVisible(visible);
+}
+
+void DpGrib_pi::Internal_SetOverlayUIVisible(bool visible, int canvasIndex) {
+  // Per-canvas (dual-chart): gate each canvas's legend on its OWN auto-hide state,
+  // so canvas 0 hiding doesn't blank canvas 1's weather bar (and vice versa).
+  if (m_pGRIBOverlayFactory)
+    m_pGRIBOverlayFactory->SetOverlayUIVisible(visible, canvasIndex);
+}
+
 bool DpGrib_pi::Internal_IsColorOverlayActive(int canvasIndex) {
   // Per-canvas render-truth: this canvas must be visible AND the overlay content
   // (at THIS canvas's time) must actually be drawing a colored map this frame.

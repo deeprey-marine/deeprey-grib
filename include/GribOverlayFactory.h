@@ -265,6 +265,20 @@ public:
     }
   }
 
+  // Show/hide the on-screen color legend in sync with deeprey-gui's auto-hide.
+  // Default visible; deeprey-gui pushes the per-window auto-hide state every frame
+  // (see DpGribAPI::SetOverlayUIVisible). RenderColorLegend bails out when hidden.
+  // Global form sets both canvases (single-canvas / standalone).
+  void SetOverlayUIVisible(bool visible) {
+    m_overlayUIVisibleByCanvas[0] = visible;
+    m_overlayUIVisibleByCanvas[1] = visible;
+  }
+  // Per-canvas form (dual-chart): each canvas keeps its own gate so they don't
+  // clobber one another (a single shared flag flickers between the two canvases).
+  void SetOverlayUIVisible(bool visible, int canvasIndex) {
+    m_overlayUIVisibleByCanvas[(canvasIndex == 1) ? 1 : 0] = visible;
+  }
+
   // True iff a colored overlay legend would actually be drawn this frame (same
   // active-overlay + non-degenerate-range gate RenderColorLegend uses). The
   // single source of truth for "weather legend is on screen", so deeprey-gui's
@@ -416,6 +430,7 @@ private:
   int m_legendSlotByCanvas[2] = {0, 0};
   int m_legendStackCountByCanvas[2] = {1, 1};
   bool m_legendDrawInfoRowByCanvas[2] = {true, true};
+  bool m_overlayUIVisibleByCanvas[2] = {true, true};  // deeprey-gui auto-hide gate
 
   void drawDoubleArrow(int x, int y, double ang, wxColour arrowColor,
                        int arrowWidth, int arrowSizeIdx, double scale);
