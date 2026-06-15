@@ -337,9 +337,12 @@ private:
   bool m_bGRIBShowIcon;
 
   bool m_bShowGrib;
-  // Per-canvas render gate (dual-chart mode). Default true so single-canvas and
-  // legacy behavior is unchanged (master m_bShowGrib drives data load/unload).
-  bool m_canvasVisible[2] = {true, true};
+  // Per-canvas render gate (dual-chart mode). Default FALSE: on a fresh start the
+  // master m_bShowGrib is off, so when the user enables weather on ONE canvas, the
+  // master-toggle path sets only that canvas's flag (and the bare/global toggle
+  // still defaults both ON via OnToolbarToolCallback). {true,true} caused canvas 1
+  // to inherit weather the first time canvas 0 was enabled. Restored from config.
+  bool m_canvasVisible[2] = {false, false};
   // Which canvas the layer/format API setters/getters target (set by the GUI).
   int m_layerControlCanvas = 0;
   /**

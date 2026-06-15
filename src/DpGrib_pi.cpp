@@ -191,6 +191,10 @@ bool DpGrib_pi::DeInit(void) {
   // Reset timeline to system time before shutting down
   SendTimelineMessage(wxInvalidDateTime);
 
+  // Persist per-canvas weather state while the control bar is still alive, so each
+  // canvas resumes its own weather next launch.
+  SaveConfig();
+
   if (m_pGribCtrlBar) {
     m_pGribCtrlBar->Close();
     delete m_pGribCtrlBar;
@@ -264,6 +268,28 @@ void DpGrib_pi::LateInit(void) {
 
     // Sync units with OpenCPN settings on first open
     SyncUnitsToGribSettings();
+
+    // Restore each canvas's saved weather (enabled layers + per-layer formats +
+    // time override) now that the file is loaded. Must run AFTER OpenFile, which
+    // resets per-canvas time overrides.
+    m_pGribCtrlBar->LoadCanvasState();
+
+    // If either canvas had weather on last session, bring the master up so the
+    // overlay renders on startup. Done directly (not via OnToolbarToolCallback) to
+    // avoid re-opening the file, which would wipe the restored time overrides. The
+    // per-canvas gates (IsCanvasWeatherVisible) keep the off canvas clear.
+    if (m_canvasVisible[0] || m_canvasVisible[1]) {
+      m_bShowGrib = true;
+      if (m_pGribCtrlBar->m_bGRIBActiveFile &&
+          m_pGribCtrlBar->m_bGRIBActiveFile->IsOK()) {
+        ArrayOfGribRecordSets *rsa =
+            m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+        if (rsa->GetCount() > 1) SetCanvasContextMenuItemViz(m_MenuItem, true);
+        if (rsa->GetCount() >= 1)
+          SendTimelineMessage(m_pGribCtrlBar->TimelineTime());
+      }
+      RequestRefresh(m_parent_window);
+    }
 
     m_GUIScaleFactor = scale_factor;
   }
@@ -889,6 +915,11 @@ void DpGrib_pi::UpdateApiPtr() {
   SendPluginMessage("GRIB_API_TO_DP_GUI", apiPtrStr);
 }
 
+// Schema version for the saved per-canvas weather state. Bumping this wipes any
+// previously saved per-canvas data once on next load (see LoadConfig), so a schema
+// change or a known-bad snapshot can't be restored.
+static const int kGribPerCanvasSchemaVer = 1;
+
 bool DpGrib_pi::LoadConfig(void) {
   wxFileConfig *pConf = (wxFileConfig *)m_pconfig;
 
@@ -919,6 +950,30 @@ bool DpGrib_pi::LoadConfig(void) {
   if (m_DialogStyle > 3)
     m_DialogStyle = 0;  // ensure validity of the .conf value
 
+  // One-time reset of saved per-canvas weather state, so we start clean. Early
+  // builds of the per-canvas persistence could store an inconsistent snapshot
+  // (e.g. two color overlays enabled on one canvas). Wipe any saved per-canvas
+  // data once; bump kGribPerCanvasSchemaVer to force the reset again after a change.
+  int savedPerCanvasVer = 0;
+  pConf->SetPath(_T( "/PlugIns/GRIB" ));
+  pConf->Read(_T( "PerCanvasSchemaVer" ), &savedPerCanvasVer, 0);
+  if (savedPerCanvasVer < kGribPerCanvasSchemaVer) {
+    pConf->DeleteGroup(_T( "/PlugIns/GRIB/Canvas0" ));
+    pConf->DeleteGroup(_T( "/PlugIns/GRIB/Canvas1" ));
+    pConf->SetPath(_T( "/PlugIns/GRIB" ));
+    pConf->DeleteEntry(_T( "Canvas0Visible" ), false);
+    pConf->DeleteEntry(_T( "Canvas1Visible" ), false);
+    pConf->Write(_T( "PerCanvasSchemaVer" ), kGribPerCanvasSchemaVer);
+    pConf->Flush();  // persist the wipe immediately so it can't re-fire
+    m_canvasVisible[0] = m_canvasVisible[1] = false;  // start with weather off
+  } else {
+    // Per-canvas weather visibility (dual-chart mode), so each canvas resumes its
+    // own on/off across restarts. The master m_bShowGrib is brought up in LateInit
+    // if either canvas was visible. Defaults false (weather off on a fresh profile).
+    pConf->Read(_T( "Canvas0Visible" ), &m_canvasVisible[0], false);
+    pConf->Read(_T( "Canvas1Visible" ), &m_canvasVisible[1], false);
+  }
+
   return true;
 }
 
@@ -948,6 +1003,15 @@ bool DpGrib_pi::SaveConfig(void) {
   pConf->Write(_T ( "GRIBCtrlBarPosY" ), m_CtrlBarxy.y);
   pConf->Write(_T ( "GRIBCursorDataPosX" ), m_CursorDataxy.x);
   pConf->Write(_T ( "GRIBCursorDataPosY" ), m_CursorDataxy.y);
+
+  // Per-canvas weather visibility (restored next launch; master is implied by OR).
+  pConf->Write(_T ( "Canvas0Visible" ), m_canvasVisible[0]);
+  pConf->Write(_T ( "Canvas1Visible" ), m_canvasVisible[1]);
+  pConf->Write(_T ( "PerCanvasSchemaVer" ), kGribPerCanvasSchemaVer);
+
+  // Per-canvas layers + time (writes under /PlugIns/GRIB/CanvasN; restores our path
+  // afterwards, so this must come after the writes above).
+  if (m_pGribCtrlBar) m_pGribCtrlBar->SaveCanvasState();
 
   return true;
 }
@@ -1385,6 +1449,17 @@ bool DpGrib_pi::Internal_SetLayerVisible(int layerId, bool visible) {
   }
 
   m_pGribCtrlBar->CanvasDataPlot(m_layerControlCanvas, layerId) = visible;
+
+  // Enabling a layer can re-introduce a mutually-exclusive format whose flag was
+  // left set while the layer was hidden (most visibly a color overlay / heatmap).
+  // ResolveDisplayConflicts only considers ENABLED layers, so without this a second
+  // heatmap renders on top of the active one. Re-resolve for this canvas on enable.
+  if (visible) {
+    m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
+    m_pGribCtrlBar->ResolveDisplayConflicts(layerId);
+    m_pGribCtrlBar->CaptureCanvasLayers(m_layerControlCanvas);
+  }
+
   RequestRefresh(m_parent_window);
   return true;
 }
@@ -1594,9 +1669,7 @@ void DpGrib_pi::Internal_SetBarbedArrowsVisible(int layerId, bool visible) {
   m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bBarbedArrows = visible;
-    if (m_pGribCtrlBar->m_gCursorData) {
-    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
-  }
+    m_pGribCtrlBar->ResolveDisplayConflicts(layerId);
   // Persist the change
   settings.Write();
 
@@ -1621,9 +1694,7 @@ void DpGrib_pi::Internal_SetIsoBarsVisible(int layerId, bool visible) {
   m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bIsoBars = visible;
-  if (m_pGribCtrlBar->m_gCursorData) {
-    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
-  }
+  m_pGribCtrlBar->ResolveDisplayConflicts(layerId);
   // Persist the change
   settings.Write();
 
@@ -1648,9 +1719,7 @@ void DpGrib_pi::Internal_SetNumbersVisible(int layerId, bool visible) {
   m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bNumbers = visible;
-  if (m_pGribCtrlBar->m_gCursorData) {
-    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
-  }
+  m_pGribCtrlBar->ResolveDisplayConflicts(layerId);
   // Persist the change
   settings.Write();
 
@@ -1675,9 +1744,7 @@ void DpGrib_pi::Internal_SetOverlayMapVisible(int layerId, bool visible) {
   m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bOverlayMap = visible;
-  if (m_pGribCtrlBar->m_gCursorData) {
-    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
-  }
+  m_pGribCtrlBar->ResolveDisplayConflicts(layerId);
   // Persist the change
   settings.Write();
 
@@ -1702,9 +1769,7 @@ void DpGrib_pi::Internal_SetDirectionArrowsVisible(int layerId, bool visible) {
   m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bDirectionArrows = visible;
-  if (m_pGribCtrlBar->m_gCursorData) {
-    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
-  }
+  m_pGribCtrlBar->ResolveDisplayConflicts(layerId);
   // Persist the change
   settings.Write();
 
@@ -1729,9 +1794,7 @@ void DpGrib_pi::Internal_SetParticlesVisible(int layerId, bool visible) {
   m_pGribCtrlBar->ActivateCanvasLayers(m_layerControlCanvas);
   GribOverlaySettings& settings = m_pGribCtrlBar->m_OverlaySettings;
   settings.Settings[layerId].m_bParticles = visible;
-  if (m_pGribCtrlBar->m_gCursorData) {
-    m_pGribCtrlBar->m_gCursorData->ResolveDisplayConflicts(layerId);
-  }
+  m_pGribCtrlBar->ResolveDisplayConflicts(layerId);
   // Persist the change
   settings.Write();
 

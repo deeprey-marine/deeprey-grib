@@ -68,48 +68,9 @@ void CursorData::OnCBAny(wxCommandEvent &event) {
 }
 
 void CursorData::ResolveDisplayConflicts(int Id) {
-  // Track which layer-format pairs were changed for API notification
-  std::vector<std::pair<int, int>> changedFormats;  // (layerId, formatType)
-
-  for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++) {
-    if (i == Id || !m_gparent.m_bDataPlot[i]) continue;
-
-    auto& newSettings = m_gparent.m_OverlaySettings.Settings[Id];
-    auto& existingSettings = m_gparent.m_OverlaySettings.Settings[i];
-
-    // Check each format individually - only disable the specific conflict
-    if (newSettings.m_bBarbedArrows && existingSettings.m_bBarbedArrows) {
-      existingSettings.m_bBarbedArrows = false;
-      changedFormats.push_back({i, 0});  // FORMAT_BARBED_ARROWS
-    }
-    if (newSettings.m_bDirectionArrows && existingSettings.m_bDirectionArrows) {
-      existingSettings.m_bDirectionArrows = false;
-      changedFormats.push_back({i, 1});  // FORMAT_DIRECTION_ARROWS
-    }
-    if (newSettings.m_bIsoBars && existingSettings.m_bIsoBars) {
-      existingSettings.m_bIsoBars = false;
-      changedFormats.push_back({i, 2});  // FORMAT_ISOBARS
-    }
-    if (newSettings.m_bNumbers && existingSettings.m_bNumbers) {
-      existingSettings.m_bNumbers = false;
-      changedFormats.push_back({i, 3});  // FORMAT_NUMBERS
-    }
-    if (newSettings.m_bOverlayMap && existingSettings.m_bOverlayMap) {
-      existingSettings.m_bOverlayMap = false;
-      changedFormats.push_back({i, 4});  // FORMAT_OVERLAY_MAP
-    }
-    if (newSettings.m_bParticles && existingSettings.m_bParticles) {
-      existingSettings.m_bParticles = false;
-      changedFormats.push_back({i, 5});  // FORMAT_PARTICLES
-    }
-  }
-
-  m_gparent.SetFactoryOptions();
-
-  // Notify external GUI if any formats changed
-  if (!changedFormats.empty() && m_gparent.pPlugIn && m_gparent.pPlugIn->GetGribAPI()) {
-    m_gparent.pPlugIn->GetGribAPI()->NotifyFormatStateChanged(changedFormats);
-  }
+  // The logic lives on GRIBUICtrlBar so it also runs in the embedded deeprey-gui
+  // mode, where this CursorData panel is never instantiated. Delegate to it.
+  m_gparent.ResolveDisplayConflicts(Id);
 }
 
 void CursorData::AddTrackingControl(wxControl *ctrl1, wxControl *ctrl2,

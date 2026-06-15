@@ -2231,6 +2231,163 @@ bool &GRIBUICtrlBar::CanvasDataPlot(int canvasIndex, int layerId) {
   return m_dataPlotByCanvas[(canvasIndex == 1) ? 1 : 0][layerId];
 }
 
+// Single-owner-per-format enforcement, on the control bar itself so it runs in the
+// embedded deeprey-gui mode (where the native CursorData panel — and thus
+// CursorData::ResolveDisplayConflicts — is never instantiated). Mirrors the logic in
+// CursorData, which now delegates here.
+void GRIBUICtrlBar::ResolveDisplayConflicts(int Id) {
+  std::vector<std::pair<int, int>> changedFormats;  // (layerId, formatType)
+
+  for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++) {
+    if (i == Id || !m_bDataPlot[i]) continue;
+
+    GribOverlaySettings::OverlayDataSettings &newSettings =
+        m_OverlaySettings.Settings[Id];
+    GribOverlaySettings::OverlayDataSettings &existingSettings =
+        m_OverlaySettings.Settings[i];
+
+    if (newSettings.m_bBarbedArrows && existingSettings.m_bBarbedArrows) {
+      existingSettings.m_bBarbedArrows = false;
+      changedFormats.push_back({i, 0});  // FORMAT_BARBED_ARROWS
+    }
+    if (newSettings.m_bDirectionArrows && existingSettings.m_bDirectionArrows) {
+      existingSettings.m_bDirectionArrows = false;
+      changedFormats.push_back({i, 1});  // FORMAT_DIRECTION_ARROWS
+    }
+    if (newSettings.m_bIsoBars && existingSettings.m_bIsoBars) {
+      existingSettings.m_bIsoBars = false;
+      changedFormats.push_back({i, 2});  // FORMAT_ISOBARS
+    }
+    if (newSettings.m_bNumbers && existingSettings.m_bNumbers) {
+      existingSettings.m_bNumbers = false;
+      changedFormats.push_back({i, 3});  // FORMAT_NUMBERS
+    }
+    if (newSettings.m_bOverlayMap && existingSettings.m_bOverlayMap) {
+      existingSettings.m_bOverlayMap = false;
+      changedFormats.push_back({i, 4});  // FORMAT_OVERLAY_MAP
+    }
+    if (newSettings.m_bParticles && existingSettings.m_bParticles) {
+      existingSettings.m_bParticles = false;
+      changedFormats.push_back({i, 5});  // FORMAT_PARTICLES
+    }
+  }
+
+  SetFactoryOptions();
+
+  if (!changedFormats.empty() && pPlugIn && pPlugIn->GetGribAPI()) {
+    pPlugIn->GetGribAPI()->NotifyFormatStateChanged(changedFormats);
+  }
+}
+
+// Per-canvas config keys live under /PlugIns/GRIB/Canvas0|Canvas1. We persist only
+// the per-canvas DELTAS from the global settings (time index, enabled layers, and
+// the per-layer format toggles the GUI can set per canvas) — the rest is reseeded
+// from the (already persisted) global GribOverlaySettings on load. Units are NOT
+// persisted here: they are a global user setting.
+void GRIBUICtrlBar::SaveCanvasState() {
+  wxFileConfig *pConf = GetOCPNConfigObject();
+  if (!pConf) return;
+  // Nothing meaningful to save until the per-canvas copies have been seeded (else
+  // m_dataPlotByCanvas / m_layerSettingsByCanvas hold uninitialized data).
+  if (!m_canvasLayersInitialized) return;
+
+  wxString oldPath = pConf->GetPath();
+  for (int ci = 0; ci < 2; ci++) {
+    pConf->SetPath(wxString::Format(_T("/PlugIns/GRIB/Canvas%d"), ci));
+    pConf->Write(_T("TimeIndex"), m_canvasTimeIndex[ci]);
+    for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
+      pConf->Write(wxString::Format(_T("L%d_DataPlot"), i),
+                   m_dataPlotByCanvas[ci][i]);
+    for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++) {
+      const GribOverlaySettings::OverlayDataSettings &s =
+          m_layerSettingsByCanvas[ci][i];
+      wxString p = wxString::Format(_T("L%d_"), i);
+      pConf->Write(p + _T("Barbed"), s.m_bBarbedArrows);
+      pConf->Write(p + _T("BarbedVis"), s.m_iBarbedVisibility);
+      pConf->Write(p + _T("IsoBars"), s.m_bIsoBars);
+      pConf->Write(p + _T("IsoBarVis"), s.m_iIsoBarVisibility);
+      pConf->Write(p + _T("Numbers"), s.m_bNumbers);
+      pConf->Write(p + _T("OverlayMap"), s.m_bOverlayMap);
+      pConf->Write(p + _T("DirArrows"), s.m_bDirectionArrows);
+      pConf->Write(p + _T("Particles"), s.m_bParticles);
+      pConf->Write(p + _T("AbbrIso"), s.m_bAbbrIsoBarsNumbers);
+    }
+  }
+  pConf->SetPath(oldPath);
+}
+
+void GRIBUICtrlBar::LoadCanvasState() {
+  wxFileConfig *pConf = GetOCPNConfigObject();
+  if (!pConf) return;
+
+  // Seed both canvases from the (persisted) global settings, then overlay the saved
+  // per-canvas deltas. This sets m_canvasLayersInitialized so ActivateCanvasLayers
+  // won't re-seed from global afterwards.
+  InitCanvasLayersFromGlobal();
+
+  int maxIdx = -1;
+  if (m_bGRIBActiveFile && m_bGRIBActiveFile->IsOK())
+    maxIdx = (int)m_bGRIBActiveFile->GetRecordSetArrayPtr()->GetCount() - 1;
+
+  wxString oldPath = pConf->GetPath();
+  for (int ci = 0; ci < 2; ci++) {
+    pConf->SetPath(wxString::Format(_T("/PlugIns/GRIB/Canvas%d"), ci));
+    int ti = -1;
+    pConf->Read(_T("TimeIndex"), &ti, -1);
+    // Drop a stale index if the loaded file now has fewer records (or none) — the
+    // canvas falls back to the global timeline.
+    if (ti > maxIdx) ti = -1;
+    m_canvasTimeIndex[ci] = ti;
+    for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++)
+      pConf->Read(wxString::Format(_T("L%d_DataPlot"), i),
+                  &m_dataPlotByCanvas[ci][i], m_dataPlotByCanvas[ci][i]);
+    for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++) {
+      GribOverlaySettings::OverlayDataSettings &s = m_layerSettingsByCanvas[ci][i];
+      wxString p = wxString::Format(_T("L%d_"), i);
+      pConf->Read(p + _T("Barbed"), &s.m_bBarbedArrows, s.m_bBarbedArrows);
+      pConf->Read(p + _T("BarbedVis"), &s.m_iBarbedVisibility, s.m_iBarbedVisibility);
+      pConf->Read(p + _T("IsoBars"), &s.m_bIsoBars, s.m_bIsoBars);
+      pConf->Read(p + _T("IsoBarVis"), &s.m_iIsoBarVisibility, s.m_iIsoBarVisibility);
+      pConf->Read(p + _T("Numbers"), &s.m_bNumbers, s.m_bNumbers);
+      pConf->Read(p + _T("OverlayMap"), &s.m_bOverlayMap, s.m_bOverlayMap);
+      pConf->Read(p + _T("DirArrows"), &s.m_bDirectionArrows, s.m_bDirectionArrows);
+      pConf->Read(p + _T("Particles"), &s.m_bParticles, s.m_bParticles);
+      pConf->Read(p + _T("AbbrIso"), &s.m_bAbbrIsoBarsNumbers, s.m_bAbbrIsoBarsNumbers);
+    }
+  }
+  pConf->SetPath(oldPath);
+
+  // Defensive: a canvas must never carry two ENABLED layers sharing the same
+  // mutually-exclusive format (heatmap, numbers, particles, barbs, isobars,
+  // direction arrows) — they would render on top of each other. The live path
+  // enforces this via ResolveDisplayConflicts, but a restored config bypasses it,
+  // so for each format keep the first enabled owner per canvas and clear the rest.
+  for (int ci = 0; ci < 2; ci++) {
+    bool seenOverlay = false, seenNumbers = false, seenParticles = false;
+    bool seenBarbed = false, seenIsoBars = false, seenDirArrows = false;
+    for (int i = 0; i < GribOverlaySettings::GEO_ALTITUDE; i++) {
+      if (!m_dataPlotByCanvas[ci][i]) continue;
+      GribOverlaySettings::OverlayDataSettings &s = m_layerSettingsByCanvas[ci][i];
+      auto keepFirst = [](bool &flag, bool &seen) {
+        if (!flag) return;
+        if (seen) flag = false; else seen = true;
+      };
+      keepFirst(s.m_bOverlayMap, seenOverlay);
+      keepFirst(s.m_bNumbers, seenNumbers);
+      keepFirst(s.m_bParticles, seenParticles);
+      keepFirst(s.m_bBarbedArrows, seenBarbed);
+      keepFirst(s.m_bIsoBars, seenIsoBars);
+      keepFirst(s.m_bDirectionArrows, seenDirArrows);
+    }
+  }
+
+  // Build per-canvas interpolated timelines for any restored time override (needs
+  // a loaded file).
+  if (maxIdx >= 0)
+    for (int ci = 0; ci < 2; ci++)
+      if (m_canvasTimeIndex[ci] >= 0) TimelineChangedForCanvas(ci);
+}
+
 void GRIBUICtrlBar::ResetCanvasTimeOverrides() {
   GRIBOverlayFactory *factory = pPlugIn->GetGRIBOverlayFactory();
   for (int ci = 0; ci < 2; ci++) {

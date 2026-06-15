@@ -307,6 +307,20 @@ public:
   // Init-safe per-canvas layer-enable accessor used by the plugin API.
   bool &CanvasDataPlot(int canvasIndex, int layerId);
 
+  // Persist / restore each canvas's weather across OpenCPN restarts. SaveCanvasState
+  // writes the per-canvas time index + enabled layers + per-layer format toggles;
+  // LoadCanvasState seeds both canvases from the (persisted) global settings then
+  // overlays the saved per-canvas deltas (units stay global). Call LoadCanvasState
+  // AFTER the GRIB file is opened so the restored time indices can be clamped.
+  void SaveCanvasState();
+  void LoadCanvasState();
+
+  // Enforce mutually-exclusive display formats: enabling format X on layer `Id`
+  // turns X off on every other layer (only one layer may own a given format).
+  // Operates on this control bar's own state, so it works in the embedded
+  // deeprey-gui mode where the native CursorData panel is never created.
+  void ResolveDisplayConflicts(int Id);
+
   /** Timer for controlling GRIB animation playback. */
   wxTimer m_tPlayStop;
   /** Plugin instance that owns this control bar. */
