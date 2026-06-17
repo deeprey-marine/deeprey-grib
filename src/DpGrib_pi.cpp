@@ -333,8 +333,21 @@ void DpGrib_pi::SetDefaults(void) {}
 int DpGrib_pi::GetToolBarToolCount(void) { return 1; }
 
 bool DpGrib_pi::MouseEventHook(wxMouseEvent &event) {
-  if ((m_pGribCtrlBar && m_pGribCtrlBar->pReq_Dialog))
-    return m_pGribCtrlBar->pReq_Dialog->MouseEventHook(event);
+  if (m_pGribCtrlBar && m_pGribCtrlBar->pReq_Dialog &&
+      m_pGribCtrlBar->pReq_Dialog->MouseEventHook(event))
+    return true;
+
+  // GRIB legend orientation (nav-mode) icon, attributed to the clicked canvas
+  // (the legend sits at the same canvas-local spot on both, so the canvas must
+  // come from the event target, not the click position).
+  if (event.LeftDown() && m_pGRIBOverlayFactory) {
+    wxWindow *win = dynamic_cast<wxWindow *>(event.GetEventObject());
+    int ci = (win && win == GetCanvasByIndex(1)) ? 1 : 0;
+    if (m_pGRIBOverlayFactory->HandleNavIconClick(event.GetPosition(), ci)) {
+      RequestRefresh(win);
+      return true;
+    }
+  }
   return false;
 }
 
@@ -2011,6 +2024,19 @@ void DpGrib_pi::Internal_SetLegendLayout(int slot, int stackCount,
     m_pGRIBOverlayFactory->SetLegendLayout(slot, stackCount, drawInfoRow,
                                            canvasIndex);
   }
+}
+
+void DpGrib_pi::Internal_SetOverlayUIVisible(bool visible) {
+  // deeprey-gui's auto-hide drives this every render pass; the factory skips the
+  // legend draw when hidden so the weather bar fades like the depth bar.
+  if (m_pGRIBOverlayFactory) m_pGRIBOverlayFactory->SetOverlayUIVisible(visible);
+}
+
+void DpGrib_pi::Internal_SetOverlayUIVisible(bool visible, int canvasIndex) {
+  // Per-canvas (dual-chart): gate each canvas's legend on its OWN auto-hide state,
+  // so canvas 0 hiding doesn't blank canvas 1's weather bar (and vice versa).
+  if (m_pGRIBOverlayFactory)
+    m_pGRIBOverlayFactory->SetOverlayUIVisible(visible, canvasIndex);
 }
 
 bool DpGrib_pi::Internal_IsColorOverlayActive(int canvasIndex) {

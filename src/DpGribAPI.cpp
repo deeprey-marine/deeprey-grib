@@ -74,6 +74,19 @@ void DpGribAPI::SetVisible(bool visible) {
     }
 }
 
+void DpGribAPI::SetOverlayUIVisible(bool visible) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetOverlayUIVisible(visible);
+    }
+}
+
+void DpGribAPI::SetOverlayUIVisible(bool visible, int canvasIndex) {
+    if (m_plugin) {
+        static_cast<DpGrib_pi*>(m_plugin)->Internal_SetOverlayUIVisible(visible,
+                                                                        canvasIndex);
+    }
+}
+
 bool DpGribAPI::IsVisible() const {
     if (m_plugin) {
         return static_cast<DpGrib_pi*>(m_plugin)->Internal_IsVisible();

@@ -265,6 +265,20 @@ public:
     }
   }
 
+  // Show/hide the on-screen color legend in sync with deeprey-gui's auto-hide.
+  // Default visible; deeprey-gui pushes the per-window auto-hide state every frame
+  // (see DpGribAPI::SetOverlayUIVisible). RenderColorLegend bails out when hidden.
+  // Global form sets both canvases (single-canvas / standalone).
+  void SetOverlayUIVisible(bool visible) {
+    m_overlayUIVisibleByCanvas[0] = visible;
+    m_overlayUIVisibleByCanvas[1] = visible;
+  }
+  // Per-canvas form (dual-chart): each canvas keeps its own gate so they don't
+  // clobber one another (a single shared flag flickers between the two canvases).
+  void SetOverlayUIVisible(bool visible, int canvasIndex) {
+    m_overlayUIVisibleByCanvas[(canvasIndex == 1) ? 1 : 0] = visible;
+  }
+
   // True iff a colored overlay legend would actually be drawn this frame (same
   // active-overlay + non-degenerate-range gate RenderColorLegend uses). The
   // single source of truth for "weather legend is on screen", so deeprey-gui's
@@ -272,6 +286,11 @@ public:
   bool HasActiveColorOverlay();
   // Per-canvas variant: selects the canvas's timeline first (dual-chart mode).
   bool HasActiveColorOverlay(int canvasIndex);
+
+  // Cycles chart orientation if `pt` hit the legend's nav-mode icon on
+  // `canvasIndex`. Only acts when this canvas owns the shared info row (so it
+  // never fights the deepview legend's own handler). Returns true if consumed.
+  bool HandleNavIconClick(const wxPoint &pt, int canvasIndex);
 
   wxSize m_ParentSize;
 
@@ -403,6 +422,7 @@ private:
   // Nav-mode icon textures (0=north, 1=course, 2=head up); lazily GL-loaded.
   unsigned int m_navTex[3] = {0, 0, 0};
   bool m_navTexTried = false;
+  wxRect m_navIconRect;  // legend nav-icon hit rect (canvas-local; same on both)
   int m_legendScreenDpi = 0;
 
   // Vertical stacking, assigned by deeprey-gui via SetLegendLayout. Defaults give
@@ -416,6 +436,7 @@ private:
   int m_legendSlotByCanvas[2] = {0, 0};
   int m_legendStackCountByCanvas[2] = {1, 1};
   bool m_legendDrawInfoRowByCanvas[2] = {true, true};
+  bool m_overlayUIVisibleByCanvas[2] = {true, true};  // deeprey-gui auto-hide gate
 
   void drawDoubleArrow(int x, int y, double ang, wxColour arrowColor,
                        int arrowWidth, int arrowSizeIdx, double scale);
