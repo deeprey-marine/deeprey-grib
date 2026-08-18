@@ -685,4 +685,14 @@ wxString DpGribAPI::GetLayerDisplayName(int layerId) const {
     return wxEmptyString;
 }
 
+bool DpGribAPI::GetPassageSampleAt(double latitude, double longitude,
+                                    const wxDateTime& utcTime,
+                                    DpGribPassageSample& out) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetPassageSampleAt(
+            latitude, longitude, utcTime, out);
+    }
+    return false;
+}
+
 } // namespace DpGrib

@@ -273,6 +273,12 @@ public:
   bool Internal_IsVectorLayer(int layerId) const;
   wxString Internal_GetLayerDisplayName(int layerId) const;
 
+  // Passage planner: whole weather state at one point and time, fixed units, per-field
+  // availability. Deliberately does NOT go through CalibrateValue().
+  bool Internal_GetPassageSampleAt(double latitude, double longitude,
+                                   const wxDateTime& utcTime,
+                                   DpGrib::DpGribPassageSample& out) const;
+
   int m_MenuItem;
   bool m_DialogStyleChanged;
 

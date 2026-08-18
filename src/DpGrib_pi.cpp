@@ -2290,3 +2290,85 @@ wxString DpGrib_pi::Internal_GetLayerDisplayName(int layerId) const {
       return wxEmptyString;
   }
 }
+
+// ---------------------------------------------------------------------------
+//  Passage planner sampling
+// ---------------------------------------------------------------------------
+// Six field groups in one call, because the passage simulator asks for all of them at
+// every sample point and six separate calls would re-walk the record-set array six
+// times.
+//
+// Three deliberate differences from Internal_GetScalarValueAt / GetVectorValueAt:
+//
+//  1. NO CalibrateValue(). Those methods convert to the operator's display units,
+//     which is correct for a meteogram axis and wrong here — the simulator's physics
+//     must not change when somebody switches knots to km/h.
+//  2. A wxDateTime instead of a forecast step index, so a passage can be sampled at
+//     the moment the boat actually reaches each leg. The underlying
+//     getTimeInterpolatedValue() already takes a wxDateTime; the index-based API is
+//     the lossier wrapper, not the other way round.
+//  3. Per-field availability instead of all-or-nothing failure. A wind-only GRIB is
+//     genuinely useful and must not be reported as a calm sea.
+bool DpGrib_pi::Internal_GetPassageSampleAt(double latitude, double longitude,
+                                            const wxDateTime& utcTime,
+                                            DpGrib::DpGribPassageSample& out) const {
+  out = DpGrib::DpGribPassageSample();
+
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) return false;
+  if (!utcTime.IsValid()) return false;
+
+  // The records hold SI; the passage planner and the boat profile both work in knots.
+  constexpr double kMsToKn = 1.9438444924406;
+
+  auto scalar = [&](int idx, double& value) -> bool {
+    const double raw =
+        m_pGribCtrlBar->getTimeInterpolatedValue(idx, longitude, latitude, utcTime);
+    if (raw == GRIB_NOTDEF) return false;
+    value = raw;
+    return true;
+  };
+
+  // Wind: U/V components -> speed and the direction it blows FROM.
+  double magnitude = 0.0, direction = 0.0;
+  if (m_pGribCtrlBar->getTimeInterpolatedValues(magnitude, direction, Idx_WIND_VX,
+                                                Idx_WIND_VY, longitude, latitude,
+                                                utcTime)) {
+    out.windKn = magnitude * kMsToKn;
+    out.windFromDeg = direction;
+    out.avail |= DpGrib::DPWX_WIND;
+  }
+
+  double v = 0.0;
+  if (scalar(Idx_WIND_GUST, v)) {
+    out.gustKn = v * kMsToKn;
+    out.avail |= DpGrib::DPWX_GUST;
+  }
+
+  // Wave height, period and direction are three separate records and routinely arrive
+  // apart — a GRIB with height but no period is common, and period is what actually
+  // decides whether a given height is comfortable. Hence three separate bits.
+  if (scalar(Idx_HTSIGW, v)) {
+    out.waveHeightM = v;
+    out.avail |= DpGrib::DPWX_WAVE_H;
+  }
+  if (scalar(Idx_WVPER, v)) {
+    out.wavePeriodS = v;
+    out.avail |= DpGrib::DPWX_WAVE_T;
+  }
+  if (scalar(Idx_WVDIR, v)) {
+    out.waveFromDeg = v;
+    out.avail |= DpGrib::DPWX_WAVE_DIR;
+  }
+
+  // Surface current. Ocean-scale and far too coarse for a tidal race — it is set and
+  // drift offshore, not a substitute for a coastal tidal stream source.
+  if (m_pGribCtrlBar->getTimeInterpolatedValues(magnitude, direction, Idx_SEACURRENT_VX,
+                                                Idx_SEACURRENT_VY, longitude, latitude,
+                                                utcTime)) {
+    out.currentDriftKn = magnitude * kMsToKn;
+    out.currentSetDeg = direction;
+    out.avail |= DpGrib::DPWX_CURRENT;
+  }
+
+  return out.avail != DpGrib::DPWX_NONE;
+}
