@@ -279,6 +279,12 @@ public:
                                    const wxDateTime& utcTime,
                                    DpGrib::DpGribPassageSample& out) const;
 
+  // How far ONE field reaches in time. Separate from the file's own range because a tidal
+  // stream and a weather model now routinely arrive in the same loaded set with very
+  // different horizons — see the API header.
+  bool Internal_GetFieldHorizon(uint32_t availBit, wxDateTime& startUtc,
+                                wxDateTime& endUtc) const;
+
   int m_MenuItem;
   bool m_DialogStyleChanged;
 

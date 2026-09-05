@@ -2360,15 +2360,96 @@ bool DpGrib_pi::Internal_GetPassageSampleAt(double latitude, double longitude,
     out.avail |= DpGrib::DPWX_WAVE_DIR;
   }
 
-  // Surface current. Ocean-scale and far too coarse for a tidal race — it is set and
-  // drift offshore, not a substitute for a coastal tidal stream source.
+  // Surface current. Ocean-scale from a weather model, but the same records carry a
+  // coastal tidal stream when one has been downloaded, and each GribRecord holds its own
+  // grid — so a fine stream field and a coarse wind field coexist in one loaded set.
+  //
+  // THE +180 IS NOT COSMETIC. getInterpolatedValues returns atan2(-vx,-vy): the direction
+  // the vector comes FROM, which is how wind is described and the opposite of how water
+  // is. Set is where the water is GOING — the field is named for it, and the simulator
+  // adds the drift along it. Without the flip a fair tide is applied as a foul one, so the
+  // planner recommends the worst departure hour of the day with complete confidence.
+  // CursorData does the same adjustment for the same reason.
   if (m_pGribCtrlBar->getTimeInterpolatedValues(magnitude, direction, Idx_SEACURRENT_VX,
                                                 Idx_SEACURRENT_VY, longitude, latitude,
                                                 utcTime)) {
+    direction += 180.0;
+    if (direction >= 360.0) direction -= 360.0;
+    if (direction < 0.0) direction += 360.0;
+
     out.currentDriftKn = magnitude * kMsToKn;
     out.currentSetDeg = direction;
     out.avail |= DpGrib::DPWX_CURRENT;
   }
 
   return out.avail != DpGrib::DPWX_NONE;
+}
+
+bool DpGrib_pi::Internal_GetFieldHorizon(uint32_t availBit, wxDateTime& startUtc,
+                                         wxDateTime& endUtc) const {
+  startUtc = wxDateTime();
+  endUtc = wxDateTime();
+
+  if (!m_pGribCtrlBar || !m_pGribCtrlBar->m_bGRIBActiveFile) return false;
+
+  // Vector fields need BOTH components before they can be sampled, so a horizon taken from
+  // the u-record alone would promise a stream the sampler cannot actually produce. Ask for
+  // the pair and require both.
+  int idx = -1, idy = -1;
+  switch (availBit) {
+    case DpGrib::DPWX_WIND:
+      idx = Idx_WIND_VX;
+      idy = Idx_WIND_VY;
+      break;
+    case DpGrib::DPWX_GUST:
+      idx = idy = Idx_WIND_GUST;
+      break;
+    case DpGrib::DPWX_WAVE_H:
+      idx = idy = Idx_HTSIGW;
+      break;
+    case DpGrib::DPWX_WAVE_T:
+      idx = idy = Idx_WVPER;
+      break;
+    case DpGrib::DPWX_WAVE_DIR:
+      idx = idy = Idx_WVDIR;
+      break;
+    case DpGrib::DPWX_CURRENT:
+      idx = Idx_SEACURRENT_VX;
+      idy = Idx_SEACURRENT_VY;
+      break;
+    default:
+      return false;
+  }
+
+  ArrayOfGribRecordSets* rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
+  if (!rsa) return false;
+
+  // Record sets are built from the UNION of every timestamp in the loaded set, so most of
+  // them carry nothing for any one field. Walking them and keeping the extremes of those
+  // that do is what separates this field's span from the file's.
+  bool any = false;
+  time_t lo = 0, hi = 0;
+  for (unsigned int j = 0; j < rsa->GetCount(); j++) {
+    GribRecordSet* grs = &rsa->Item(j);
+    GribRecord* gx = grs->m_GribRecordPtrArray[idx];
+    GribRecord* gy = grs->m_GribRecordPtrArray[idy];
+    if (!gx || !gy) continue;
+
+    const time_t t = gx->getRecordCurrentDate();
+    if (!any) {
+      lo = hi = t;
+      any = true;
+    } else {
+      if (t < lo) lo = t;
+      if (t > hi) hi = t;
+    }
+  }
+
+  // False means the field is genuinely not in the loaded set — which is the caller's
+  // "no such records" answer, and is a different problem from a short horizon.
+  if (!any) return false;
+
+  startUtc = wxDateTime(lo).ToUTC();
+  endUtc = wxDateTime(hi).ToUTC();
+  return true;
 }

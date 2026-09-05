@@ -695,4 +695,13 @@ bool DpGribAPI::GetPassageSampleAt(double latitude, double longitude,
     return false;
 }
 
+bool DpGribAPI::GetFieldHorizon(uint32_t availBit, wxDateTime& startUtc,
+                                 wxDateTime& endUtc) const {
+    if (m_plugin) {
+        return static_cast<DpGrib_pi*>(m_plugin)->Internal_GetFieldHorizon(
+            availBit, startUtc, endUtc);
+    }
+    return false;
+}
+
 } // namespace DpGrib
