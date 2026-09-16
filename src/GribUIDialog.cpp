@@ -461,8 +461,20 @@ void GRIBUICtrlBar::OpenFile(bool newestFile) {
                            // the previously recorded, what we don't want
   if (m_file_names.IsEmpty()) {  // in any case were there is no filename
                                  // previously recorded, we must take the newest
-    m_file_names = GetFilesInDirectory();
-    newestFile = true;
+    // THE NEWEST FORECAST PLUS THE OPERATOR'S OWN FILES, merged into one set.
+    //
+    // GRIBFile is built for this — it takes an array and ingests "multiple files with
+    // different or overlapping data types" into one record set, and each GribRecord keeps
+    // its own grid, so a 1.5 km tidal stream and a 0.25 degree wind field coexist happily.
+    // Nothing ever used it: this path asked for the newest file only, and the loader then
+    // stopped after the first file that read. So weather and current could never be loaded
+    // at the same time, which is precisely what a passage over a tidal coast needs.
+    //
+    // Deliberately NOT every file in the folder. Old forecasts would pile up and merge,
+    // giving stale records equal standing with fresh ones. One current forecast, plus
+    // whatever the operator put there on purpose, is the honest set.
+    m_file_names = GetLoadSetFromDirectory();
+    newestFile = false;   // merge them; see above
   }
 
   m_bGRIBActiveFile = new GRIBFile(m_file_names, pPlugIn->GetCopyFirstCumRec(),
@@ -676,6 +688,36 @@ wxArrayString GRIBUICtrlBar::GetFilesInDirectory() {
   file_array.Sort(
       CompareFileStringTime);  // sort the files by File Modification Date
   return file_array;
+}
+
+// The set OpenFile() loads when nothing has been chosen explicitly: the newest forecast
+// this plugin downloaded, plus every GRIB the operator put in the folder themselves.
+//
+// Downloads are named "ocpn_<model>_<hours>h_<stamp>.grb2"; anything else is the operator's
+// (a tidal stream, a hand-built field) and is always included. Only ONE ocpn_ file is taken
+// — the most recent — so a folder of old forecasts cannot merge into the answer.
+wxArrayString GRIBUICtrlBar::GetLoadSetFromDirectory() {
+  const wxArrayString all = GetFilesInDirectory();   // sorted by modification date
+
+  wxArrayString mine, theirs;
+  for (size_t i = 0; i < all.GetCount(); i++) {
+    wxFileName fn(all[i]);
+    if (fn.GetFullName().Lower().StartsWith("ocpn_"))
+      mine.Add(all[i]);
+    else
+      theirs.Add(all[i]);
+  }
+
+  wxArrayString out;
+  // CompareFileStringTime returns (second - first), so the array is sorted NEWEST FIRST —
+  // which is also why the old newestFile path could just take the first one that opened.
+  if (!mine.IsEmpty()) out.Add(mine[0]);
+  for (size_t i = 0; i < theirs.GetCount(); i++) out.Add(theirs[i]);
+
+  // Nothing of ours and nothing of theirs cannot happen (the caller checked the folder is
+  // not empty), but a folder holding only old downloads still has to load something.
+  if (out.IsEmpty()) out = all;
+  return out;
 }
 
 void GRIBUICtrlBar::SetCursorLatLon(double lat, double lon) {

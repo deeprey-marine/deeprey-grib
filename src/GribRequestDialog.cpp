@@ -689,8 +689,11 @@ void GribRequestSetting::OnWorldDownload(wxCommandEvent &event) {
           wxString::Format(_("Download complete: %s"), path.c_str()));
       wxFileName fn(path);
       m_parent.m_grib_dir = fn.GetPath();
+      // Cleared, not set to `path`. OpenFile() then builds the load set itself — this
+      // download plus any GRIB the operator keeps in the folder, such as a tidal stream.
+      // Naming the single new file here is what made a fresh forecast silently drop the
+      // current data every time.
       m_parent.m_file_names.Clear();
-      m_parent.m_file_names.Add(path);
       m_parent.OpenFile();
       if (m_parent.m_bGRIBActiveFile && m_parent.m_bGRIBActiveFile->IsOK()) {
         CleanupOldGribFiles(path);
@@ -770,8 +773,8 @@ void GribRequestSetting::StartWorldDownloadFromAPI(double latMin, double lonMin,
     if (m_bTransferSuccess) {
         wxFileName fn(path);
         m_parent.m_grib_dir = fn.GetPath();
+        // Cleared, not set to `path` — see the note at the other download sites.
         m_parent.m_file_names.Clear();
-        m_parent.m_file_names.Add(path);
 
         m_parent.OpenFile(); // This parses and displays the GRIB
         if (m_parent.m_bGRIBActiveFile && m_parent.m_bGRIBActiveFile->IsOK()) {
@@ -1123,8 +1126,11 @@ void GribRequestSetting::OnDownloadLocal(wxCommandEvent &event) {
           wxString::Format(_("Download complete: %s"), path.c_str()));
       wxFileName fn(path);
       m_parent.m_grib_dir = fn.GetPath();
+      // Cleared, not set to `path`. OpenFile() then builds the load set itself — this
+      // download plus any GRIB the operator keeps in the folder, such as a tidal stream.
+      // Naming the single new file here is what made a fresh forecast silently drop the
+      // current data every time.
       m_parent.m_file_names.Clear();
-      m_parent.m_file_names.Add(path);
       m_parent.OpenFile();
       if (m_parent.m_bGRIBActiveFile && m_parent.m_bGRIBActiveFile->IsOK()) {
         CleanupOldGribFiles(path);
@@ -2414,8 +2420,11 @@ void GribRequestSetting::OnXyGribDownloadButton(wxCommandEvent &event) {
       m_xygribPanel->m_status_text->SetLabelText(_("Download complete"));
       wxFileName fn(path);
       m_parent.m_grib_dir = fn.GetPath();
+      // Cleared, not set to `path`. OpenFile() then builds the load set itself — this
+      // download plus any GRIB the operator keeps in the folder, such as a tidal stream.
+      // Naming the single new file here is what made a fresh forecast silently drop the
+      // current data every time.
       m_parent.m_file_names.Clear();
-      m_parent.m_file_names.Add(path);
       m_parent.OpenFile();
       if (m_parent.m_bGRIBActiveFile && m_parent.m_bGRIBActiveFile->IsOK()) {
         CleanupOldGribFiles(path);
@@ -2577,8 +2586,8 @@ void GribRequestSetting::StartXyGribDownloadFromAPI(double latMin, double lonMin
                  gribPath.c_str());
     wxFileName fn(gribPath);
     m_parent.m_grib_dir = fn.GetPath();
+    // Cleared, not set to `gribPath` — see the note at the other download sites.
     m_parent.m_file_names.Clear();
-    m_parent.m_file_names.Add(gribPath);
     m_parent.OpenFile();
 
     if (m_parent.m_bGRIBActiveFile && m_parent.m_bGRIBActiveFile->IsOK()) {
@@ -3169,7 +3178,17 @@ void GribRequestSetting::CleanupOldGribFiles(const wxString& keepFile) {
     wxString lowerName = filename.Lower();
     if (lowerName.EndsWith(".grib") || lowerName.EndsWith(".grb") ||
         lowerName.EndsWith(".grb2")) {
-      if (filename != keepName) {
+      // ONLY OUR OWN DOWNLOADS. Everything this dialog writes is named
+      // "ocpn_<model>_<hours>h_<stamp>.grb2", so anything else in the folder was put there
+      // deliberately by the operator — a tidal stream file, a hand-built test field — and
+      // deleting it is not this function's business.
+      //
+      // It used to delete every GRIB except the one just fetched, which quietly destroyed
+      // the operator's own files on each download. A tidal stream sitting beside the
+      // weather is exactly the case the passage planner needs, and it could never survive
+      // a single forecast update.
+      const bool ours = lowerName.StartsWith("ocpn_");
+      if (ours && filename != keepName) {
         filesToDelete.Add(gribDir + wxFileName::GetPathSeparator() + filename);
       }
     }

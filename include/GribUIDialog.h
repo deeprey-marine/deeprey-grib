@@ -414,6 +414,9 @@ private:
 
   wxDateTime MinTime();
   wxArrayString GetFilesInDirectory();
+  // The newest downloaded forecast plus every file the operator added themselves — see
+  // the .cpp. This is what OpenFile() loads when no file has been chosen explicitly.
+  wxArrayString GetLoadSetFromDirectory();
   void SetGribTimelineRecordSet(GribTimelineRecordSet *pTimelineSet);
   int GetNearestIndex(wxDateTime time, int model);
   int GetNearestValue(wxDateTime time, int model);
