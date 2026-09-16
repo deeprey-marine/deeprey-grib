@@ -1899,6 +1899,10 @@ bool GribV2Record::readGribSection0_IS(ZUFILE *file, bool b_skip_initial_GRIB) {
     return false;
   }
 
+  // From here the whole message is in grib_msg->buffer and the file sits at the next
+  // record. Anything that fails later is a decode problem, not a read problem — see
+  // isEnvelopeRead().
+  m_envelopeRead = true;
   return true;
 }
 

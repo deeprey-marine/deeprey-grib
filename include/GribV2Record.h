@@ -49,7 +49,19 @@ public:
   GribV2Record* GribV2NextDataSet(ZUFILE* file, int id_);
   bool hasMoreDataSet() const;
 
+  // True once section 0 has been read, which is the moment the WHOLE message has been
+  // pulled off the file into our own buffer (see unpackIS): the file is then already
+  // positioned at the next record, whatever happens afterwards.
+  //
+  // This is what lets a caller SKIP a record it cannot decode instead of abandoning the
+  // rest of the file. A record that fails before this point has been seeked back and is a
+  // genuine read failure; one that fails after it is merely a product we do not
+  // understand, and the records behind it are still perfectly good.
+  bool isEnvelopeRead() const { return m_envelopeRead; }
+
 private:
+  bool m_envelopeRead = false;
+
   zuint periodSeconds(zuchar unit, zuint P1, zuint P2, zuchar range);
   void readDataSet(ZUFILE* file);
   class GRIBMessage* grib_msg;

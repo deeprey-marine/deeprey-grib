@@ -122,7 +122,9 @@ void GribReader::readAllGribRecords() {
   GribRecord *prevDataSet = nullptr;
   int id = 0;
   time_t firstdate = -1;
-  bool b_EOF;
+  // Initialised: the do-while below tests it, and a record skipped before it is assigned
+  // would otherwise read an indeterminate value.
+  bool b_EOF = false;
   bool is_v2 = false;
 
   do {
@@ -150,12 +152,45 @@ void GribReader::readAllGribRecords() {
 
       is_v2 = rec->isOk();
       if (rec->isOk() == false) {
+        // Checked BEFORE the V1 fallback below. Retrying an undecodable GRIB2 message as
+        // GRIB1 replaces `rec` with a V1 record, and the skip test further down would then
+        // see a V1 failure and end the file — which is exactly the bug being fixed.
+        GribV2Record *badV2 = dynamic_cast<GribV2Record *>(rec);
+        if (badV2 && badV2->isEnvelopeRead() && !badV2->isEof()) {
+          delete rec;
+          rec = nullptr;
+          is_v2 = true;    // the next message is GRIB2 as well
+          b_EOF = false;   // a full message was consumed, so there is more to read
+          continue;
+        }
         delete rec;
         rec = new GribV1Record(file, id);
       }
     }
     prevDataSet = nullptr;
     if (rec->isOk() == false) {
+      // A RECORD WE CANNOT DECODE IS NOT THE END OF THE FILE.
+      //
+      // This used to break unconditionally, which quietly threw away every record behind
+      // the first unfamiliar one. It cost us the wave fields outright: ECMWF ships six
+      // spectral wave partitions per step under product definition template 104, which
+      // this reader does not implement, and in a 546-record file the first of them lands
+      // at 313 while every usable wave height sits at 319 or later. The loader collected
+      // wind, pressure and temperature, hit 313, and stopped — so "no waves in this GRIB"
+      // was a decoding artefact, with the data present in the file the whole time.
+      //
+      // Skipping is safe precisely when the message envelope was read: unpackIS() pulls
+      // the entire message into its own buffer, so the file is already at the next record
+      // and cannot lose sync. A failure BEFORE that point has been seeked back and is a
+      // real read failure, which still ends the file as it always did.
+      GribV2Record *badV2 = dynamic_cast<GribV2Record *>(rec);
+      if (badV2 && badV2->isEnvelopeRead() && !rec->isEof()) {
+        delete rec;
+        rec = nullptr;
+        is_v2 = true;    // stay on the V2 path; the next message is one too
+        b_EOF = false;   // a full message was consumed, so there is more to read
+        continue;
+      }
       delete rec;
       break;
     }
