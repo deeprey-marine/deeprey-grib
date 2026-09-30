@@ -2449,7 +2449,10 @@ bool DpGrib_pi::Internal_GetFieldHorizon(uint32_t availBit, wxDateTime& startUtc
   // "no such records" answer, and is a different problem from a short horizon.
   if (!any) return false;
 
-  startUtc = wxDateTime(lo).ToUTC();
-  endUtc = wxDateTime(hi).ToUTC();
+  // Real instants, the same as GetTimeRange() and what GetPassageSampleAt() compares against.
+  // A ToUTC() here shifted the horizon by the zone offset, so the planner judged a departure
+  // to be inside the stream data while the sampler, reading the true clock, found none.
+  startUtc = wxDateTime(lo);
+  endUtc = wxDateTime(hi);
   return true;
 }
